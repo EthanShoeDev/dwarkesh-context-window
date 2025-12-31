@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "effect-language-service patch",
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
@@ -24,6 +25,7 @@
     "vite-tsconfig-paths": "^6.0.2"
   },
   "devDependencies": {
+    "@effect/language-service": "^0.63.2",
     "@tanstack/devtools-vite": "^0.3.11",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.2.0",
