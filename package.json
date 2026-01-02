@@ -2,6 +2,7 @@
   "name": "dwarkesh-context-window",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.5",
   "scripts": {
     "prepare": "effect-language-service patch",
     "dev": "vite dev --port 3000",
@@ -11,9 +12,11 @@
     "typecheck": "tsc --noEmit",
     "lint:oxlint": "oxlint --type-aware",
     "lint:oxlint:fix": "oxlint --type-aware --fix",
-    "lint:oxlint:fix:2": "oxlint --type-aware --fix --fix-suggestions",
+    "lint:oxlint:fix:fix-suggestions": "oxlint --type-aware --fix --fix-suggestions",
     "lint:oxlint:unsafe:fix": "oxlint --type-aware --fix-dangerously",
-    "lint:oxlint:unsafe:fix:2": "oxlint --type-aware --fix --fix-suggestions --fix-dangerously"
+    "lint:oxlint:unsafe:fix:fix-suggestions": "oxlint --type-aware --fix --fix-suggestions --fix-dangerously",
+    "fmt:write": "oxfmt --write",
+    "fmt:check": "oxfmt --check"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.0.6",
@@ -40,8 +43,10 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^27.0.0",
+    "oxfmt": "^0.21.0",
     "oxlint": "^1.36.0",
     "oxlint-tsgolint": "^0.10.0",
+    "turbo": "^2.7.2",
     "typescript": "^5.7.2",
     "vite": "^7.1.7",
     "vitest": "^3.0.5",

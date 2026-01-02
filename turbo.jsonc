@@ -1,0 +1,29 @@
+{
+    "$schema": "https://turborepo.com/schema.json",
+    "tasks": {
+      "lint:fix": {
+        "dependsOn": [
+            "lint:oxlint:fix",
+            "fmt:write",
+            "typecheck"
+        ]
+      },
+      "lint:check": {
+        "with": [
+            "fmt:check",
+            "lint:oxlint",
+            "typecheck"
+        ]
+      },
+
+      // Special
+      "lint:oxlint": {},
+      "lint:oxlint:fix": {},
+      "lint:oxlint:fix:fix-suggestions": {},
+      "lint:oxlint:unsafe:fix": {},
+      "lint:oxlint:unsafe:fix:fix-suggestions": {},
+      "fmt:write": {},
+      "fmt:check": {},
+      "typecheck": {},
+    }
+  }
