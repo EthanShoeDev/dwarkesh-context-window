@@ -8,7 +8,7 @@ export const getRouter = () => {
   const router = createRouter({
     routeTree,
     context: {},
-
+    defaultNotFoundComponent: (props) => <div>Not Found {JSON.stringify(props)}</div>,
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,
   });
