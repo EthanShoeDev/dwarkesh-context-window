@@ -25,10 +25,6 @@ Because its awesome.
 
 I wanted to give it a shot.
 
-### Jujutsu for version control.
-
-I just want to try it.
-
 ## Notes
 
 - I would love to use tsgo, but it currently conflicts with the effect-ts ts plugin.

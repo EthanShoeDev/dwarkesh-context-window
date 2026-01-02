@@ -4,7 +4,6 @@ import { Command, FileSystem } from '@effect/platform';
 import { S3 } from '@effect-aws/client-s3';
 import * as Cli from '@effect/cli';
 import { Effect, Data } from 'effect';
-import { getSubtitles } from 'youtube-captions-scraper';
 import { InfisicalSDK } from '@infisical/sdk';
 import Groq from 'groq-sdk';
 import * as path from 'node:path';
@@ -57,10 +56,10 @@ const CONTENT_DIR = 'src/content';
 
 /**
  * Infisical service for fetching secrets.
- * 
+ *
  * This service handles authentication with Infisical using Universal Auth
  * and provides methods to fetch secrets from the configured project/environment.
- * 
+ *
  * Requires environment variables:
  * - INFISICAL_CLIENT_ID: Machine Identity client ID
  * - INFISICAL_CLIENT_SECRET: Machine Identity client secret
@@ -76,7 +75,7 @@ class Infisical extends Effect.Service<Infisical>()('Infisical', {
           message:
             'Missing INFISICAL_CLIENT_ID or INFISICAL_CLIENT_SECRET environment variables. ' +
             'Please create a Machine Identity in Infisical and set these variables.',
-        })
+        }),
       );
     }
 
@@ -126,7 +125,7 @@ class Infisical extends Effect.Service<Infisical>()('Infisical', {
 
 /**
  * Fetches the Groq API key from Infisical.
- * 
+ *
  * @returns Effect that resolves to the Groq API key
  */
 export function getGroqApiKey() {
@@ -141,7 +140,7 @@ export function getGroqApiKey() {
 
 /**
  * Fetches Alarik S3 credentials from Infisical.
- * 
+ *
  * @returns Effect that resolves to { accessKeyId, secretAccessKey }
  */
 export function getAlarikCredentials() {
@@ -176,7 +175,7 @@ function videoIdFromUrl(url: string): string {
 
 /**
  * Downloads audio from a YouTube video using yt-dlp via nix run.
- * 
+ *
  * @param url - The YouTube video URL to download audio from
  * @returns Effect that resolves to the path of the downloaded audio file and video metadata
  */
@@ -193,8 +192,8 @@ export function downloadAudioFromYouTube(url: string) {
           new YtDlpError({
             message: `Failed to create cache directory: ${CACHE_DIR}`,
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     // Use a predictable output template: videoId_title.mp3
@@ -218,7 +217,7 @@ export function downloadAudioFromYouTube(url: string) {
       outputTemplate,
       '--print',
       'after_move:filepath',
-      url
+      url,
     );
 
     // Execute the command and capture output
@@ -228,8 +227,8 @@ export function downloadAudioFromYouTube(url: string) {
           new YtDlpError({
             message: `Failed to download audio using yt-dlp`,
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     // The --print after_move:filepath outputs the final file path
@@ -242,8 +241,7 @@ export function downloadAudioFromYouTube(url: string) {
     const filename = path.basename(filePath, '.mp3');
     const underscoreIndex = filename.indexOf('_');
     const videoId = underscoreIndex > 0 ? filename.slice(0, underscoreIndex) : filename;
-    const videoTitle =
-      underscoreIndex > 0 ? filename.slice(underscoreIndex + 1) : filename;
+    const videoTitle = underscoreIndex > 0 ? filename.slice(underscoreIndex + 1) : filename;
 
     return {
       filePath,
@@ -259,7 +257,7 @@ export function downloadAudioFromYouTube(url: string) {
 
 /**
  * Uploads an audio file to Alarik S3-compatible storage and returns a presigned URL.
- * 
+ *
  * @param options - Configuration options
  * @param options.filePath - Local path to the audio file
  * @param options.key - S3 object key (path in bucket)
@@ -296,8 +294,8 @@ export function uploadAudioToS3(options: {
           new S3UploadError({
             message: `Failed to read audio file: ${options.filePath}`,
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     // Upload to S3
@@ -312,8 +310,8 @@ export function uploadAudioToS3(options: {
           new S3UploadError({
             message: 'Failed to upload audio to S3',
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     yield* Effect.log('Audio uploaded to S3 successfully');
@@ -323,15 +321,15 @@ export function uploadAudioToS3(options: {
 
     const presignedUrl = yield* S3.getObject(
       { Bucket: ALARIK_BUCKET, Key: options.key },
-      { presigned: true, expiresIn: PRESIGNED_URL_EXPIRY_SECONDS }
+      { presigned: true, expiresIn: PRESIGNED_URL_EXPIRY_SECONDS },
     ).pipe(
       Effect.mapError(
         (error) =>
           new S3UploadError({
             message: 'Failed to generate presigned URL',
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     yield* Effect.log(`Presigned URL generated (expires in 3 days)`);
@@ -346,7 +344,7 @@ export function uploadAudioToS3(options: {
 
 /**
  * Transcribes audio from a URL using Groq's Whisper API and saves the transcript.
- * 
+ *
  * @param options - Configuration options
  * @param options.audioUrl - Presigned URL to the audio file
  * @param options.groqApiKey - Groq API key for authentication
@@ -374,8 +372,8 @@ export function transcribeAudio(options: {
           new GroqTranscribeError({
             message: `Failed to create content directory: ${CONTENT_DIR}`,
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     // Initialize Groq client
@@ -411,8 +409,8 @@ export function transcribeAudio(options: {
           new GroqTranscribeError({
             message: `Failed to write transcript to ${outputPath}`,
             cause: error,
-          })
-      )
+          }),
+      ),
     );
 
     yield* Effect.log(`Transcript saved to: ${outputPath}`);
@@ -430,7 +428,7 @@ export function transcribeAudio(options: {
 
 /**
  * Downloads audio from YouTube, uploads to S3, transcribes using Groq, and saves the transcript.
- * 
+ *
  * This is the main pipeline that combines all steps:
  * 1. Fetch secrets from Infisical (Groq API key + Alarik S3 credentials)
  * 2. Download audio from YouTube using yt-dlp
@@ -438,7 +436,7 @@ export function transcribeAudio(options: {
  * 4. Transcribe audio using Groq Whisper (via URL)
  * 5. Save transcript to src/content/
  * 6. Clean up local audio file
- * 
+ *
  * @param url - The YouTube video URL
  * @returns Effect that resolves to the transcript result
  */
@@ -473,7 +471,7 @@ export function getTranscriptFromYouTube(url: string) {
       Effect.catchAll((error) => {
         // Log warning but don't fail the pipeline if cleanup fails
         return Effect.log(`Warning: Failed to delete local audio file: ${error}`);
-      })
+      }),
     );
 
     // Step 5: Transcribe audio using URL
@@ -493,14 +491,7 @@ export function getTranscriptFromYouTube(url: string) {
 const command = Cli.Command.make('get-transcript', {}, () =>
   Effect.gen(function* () {
     yield* Effect.log('Getting transcript...');
-    const subtitles = yield* Effect.tryPromise({
-      try: () =>
-        getSubtitles({
-          videoID: videoIdFromUrl(videoUrl),
-          lang: 'en',
-        }),
-      catch: (error) => new Error(`Failed to get subtitles: ${String(error)}`),
-    });
+    const subtitles = yield* getTranscriptFromYouTube(videoUrl);
     yield* Effect.log(subtitles);
   }).pipe(Effect.orDie),
 );
