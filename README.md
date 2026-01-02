@@ -35,7 +35,7 @@ I just want to try it.
 
 # MVP Features TODO
 
-- [ ] Get all software tools installed and configured correctly.
+- [x] Get all software tools installed and configured correctly.
 - [ ] Write a script that can get the transcript from a podcast episode.
 - [ ] Write a script that will prompt an llm with the script and output markdown.
 - [ ] Render the md content
