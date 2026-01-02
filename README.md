@@ -2,9 +2,9 @@
 
 # Why this exists
 
-I really love the podcaster dwarkesh patel. He interviews Ai scientists and then allows really pushes the layman toward where agi might be hiding. I am thinking of building a small blog ish site where the whole idea is that I will take the entire transcript from a dwarkesh podcast and then feed that into one of the leading llms and ask it to act as a third guest and see if it can expand the conversation into even more fruitful areas for llm research. 
+I really love the podcaster dwarkesh patel. He interviews Ai scientists and then allows really pushes the layman toward where agi might be hiding. I am thinking of building a small blog ish site where the whole idea is that I will take the entire transcript from a dwarkesh podcast and then feed that into one of the leading llms and ask it to act as a third guest and see if it can expand the conversation into even more fruitful areas for llm research.
 
-I guess the idea is that famous one that llms could eventually get so good that they could become the best AI researchers in the world. I believe if you wanted to build something like that, you would need a really great prompt to ask the model. What better prompt is there than the entire podcast context? (with some system prompt ofc) 
+I guess the idea is that famous one that llms could eventually get so good that they could become the best AI researchers in the world. I believe if you wanted to build something like that, you would need a really great prompt to ask the model. What better prompt is there than the entire podcast context? (with some system prompt ofc)
 
 And the website could sort of act as a historical record at how well the llms know themselfs in a more blog/podcast style. It could eventually even become a benchmark of sorts :P
 

@@ -1,6 +1,3 @@
 {
-    "recommendations": [
-        "jjk.jjk",
-        "oxc.oxc-vscode"
-    ]
+  "recommendations": ["jjk.jjk", "oxc.oxc-vscode"]
 }
