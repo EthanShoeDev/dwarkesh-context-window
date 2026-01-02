@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { BunContext, BunRuntime } from '@effect/platform-bun';
 import * as Cli from '@effect/cli';
 import { Effect } from 'effect';
