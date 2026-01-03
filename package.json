@@ -21,7 +21,6 @@
     "@effect-aws/client-s3": "^1.10.7",
     "@effect/cli": "^0.73.0",
     "@effect/platform-bun": "^0.87.0",
-    "@infisical/sdk": "^4.0.6",
     "@tailwindcss/vite": "^4.0.6",
     "@tanstack/react-devtools": "^0.7.0",
     "@tanstack/react-router": "^1.132.0",
