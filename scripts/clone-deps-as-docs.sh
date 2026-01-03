@@ -9,3 +9,4 @@ gh repo clone Effect-TS/website
 gh repo clone amishshah/prism-media
 gh repo clone eugeneware/ffmpeg-static
 gh repo clone floydspace/effect-aws
+gh repo clone groq/groq-api-cookbook
