@@ -228,15 +228,11 @@ const command = Cli.Command.make('get-transcript', {}, () =>
     yield* Effect.log('Getting transcript...');
     const subtitles = yield* getTranscriptFromYouTube(videoUrl);
     yield* Effect.log(subtitles);
-  }).pipe(Effect.orDie),
+  }).pipe(Effect.orDie, Effect.provide(services)),
 );
 
 const cli = Cli.Command.run(command, {
   name: 'Get Transcript CLI',
   version: 'v0.0.1',
 });
-cli(process.argv).pipe(
-  Effect.provide(BunContext.layer),
-  Effect.provide(services),
-  BunRuntime.runMain,
-);
+cli(process.argv).pipe(Effect.provide(BunContext.layer), BunRuntime.runMain);
