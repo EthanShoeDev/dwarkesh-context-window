@@ -1,12 +1,20 @@
 #!/usr/bin/env bun
 /**
- * Chunking tutorial: https://github.com/groq/groq-api-cookbook/blob/main/tutorials/06-multimodal/audio-chunking/audio_chunking_tutorial.ipynb
+ * Podcast Transcript CLI
  *
- * Run with: infisical run -- ./scripts/get-transcript.ts --log-level debug
+ * Commands:
+ *   add <youtube-url>              - Add a new video (fetches metadata + creates transcript)
+ *   update-metadata <videoId>      - Update metadata for existing video without re-transcribing
+ *   update-metadata --all          - Update metadata for all videos
+ *   reprocess-transcript <videoId> - Re-download audio and re-transcribe a video
+ *   reprocess-transcript --all     - Reprocess all videos
+ *   rebuild [--video-id <id>]      - Rebuild transcripts from metadata (for self-hosting)
+ *
+ * Run with: infisical run -- ./scripts/get-transcript.ts <command> [options]
  *
  * Optional chunking config (both can be set, audio splits to satisfy both):
- *   MAX_CHUNK_SIZE_MB=24        # Split if file exceeds this size (Groq limit: 25MB)
- *   MAX_CHUNK_DURATION_SECONDS=600  # Split if duration exceeds this (recommended: 600s = 10min)
+ *   MAX_CHUNK_SIZE_MB=24             # Split if file exceeds this size (Groq limit: 25MB)
+ *   MAX_CHUNK_DURATION_SECONDS=600   # Split if duration exceeds this (recommended: 600s = 10min)
  */
 import { BunContext, BunRuntime } from '@effect/platform-bun';
 import { Command, FileSystem } from '@effect/platform';
@@ -18,8 +26,11 @@ import { Effect, Data, Config, Redacted, Layer, Duration, Option } from 'effect'
 import Groq from 'groq-sdk';
 import * as path from 'node:path';
 import { CommandUtils } from '../src/lib/effect-utils';
+import type { PodcastMetadata, Transcript, AudioMetadata } from '../src/lib/schemas';
 
-const videoUrl = 'https://www.youtube.com/watch?v=_9V_Hbe-N1A';
+// ============================================================================
+// Errors
+// ============================================================================
 
 class YtDlpError extends Data.TaggedError('YtDlpError')<{
   readonly message: string;
@@ -31,6 +42,20 @@ class GroqTranscribeError extends Data.TaggedError('GroqTranscribeError')<{
   readonly cause?: unknown;
 }> {}
 
+class FfmpegError extends Data.TaggedError('FfmpegError')<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+class MetadataError extends Data.TaggedError('MetadataError')<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
 const appConfig = Config.all({
   groqApiKey: Config.redacted('GROQ_API_KEY'),
   s3AccessKey: Config.redacted('S3_ACCESS_KEY'),
@@ -40,34 +65,112 @@ const appConfig = Config.all({
   audioCacheDir: Config.string('AUDIO_CACHE_DIR').pipe(
     Config.withDefault('node_modules/.cache/audio'),
   ),
-  contentDir: Config.string('CONTENT_DIR').pipe(Config.withDefault('src/content')),
-  // Toggle between presigned URLs (true) and public-read ACL (false)
-  // Set to false if using S3-compatible storage that doesn't support presigned URLs
-  // (e.g., Alarik - see https://github.com/achtungsoftware/alarik/issues/1)
+  podcastsMetadataDir: Config.string('PODCASTS_METADATA_DIR').pipe(
+    Config.withDefault('src/content/podcasts-metadata'),
+  ),
+  transcriptsDir: Config.string('TRANSCRIPTS_DIR').pipe(
+    Config.withDefault('src/content/transcripts'),
+  ),
   usePresignedLinks: Config.boolean('USE_PRESIGNED_LINKS').pipe(Config.withDefault(true)),
   presignedUrlExpirySeconds: Config.number('PRESIGNED_URL_EXPIRY_SECONDS').pipe(
     Config.withDefault(3600),
   ),
-  // Max chunk size in MB for Groq API (25MB free tier, 100MB dev tier via URL)
-  // Optional: if not set, file size won't be used as a splitting criterion
   maxChunkSizeMB: Config.option(Config.number('MAX_CHUNK_SIZE_MB')),
-  // Max chunk duration in seconds (tutorial recommends 600s = 10 minutes)
-  // Optional: if not set, duration won't be used as a splitting criterion
   maxChunkDurationSeconds: Config.option(Config.number('MAX_CHUNK_DURATION_SECONDS')),
-  // Overlap between chunks in seconds to avoid cutting words at boundaries
   chunkOverlapSeconds: Config.number('CHUNK_OVERLAP_SECONDS').pipe(Config.withDefault(5)),
 });
+
+// ============================================================================
+// Metadata Fetching (yt-dlp)
+// ============================================================================
+
+interface YtDlpMetadata {
+  id: string;
+  title: string;
+  description: string | null;
+  upload_date: string | null;
+  duration: number;
+  view_count: number | null;
+  like_count: number | null;
+  comment_count: number | null;
+  channel: string;
+  channel_id: string;
+  channel_url: string;
+  channel_follower_count: number | null;
+  thumbnail: string | null;
+  categories: string[];
+  tags: string[];
+  webpage_url: string;
+  availability: string | null;
+}
+
+/**
+ * Fetch comprehensive video metadata using yt-dlp JSON output
+ */
+function getFullVideoMetadata(url: string) {
+  return Effect.gen(function* () {
+    const cmdParts = ['nix', 'run', 'nixpkgs#yt-dlp', '--', '-j', '--skip-download', url] as const;
+
+    const result = yield* CommandUtils.withLog(
+      Command.make(...cmdParts),
+      CommandUtils.runCommandBuffered,
+    ).pipe(
+      Effect.scoped,
+      Effect.mapError(
+        (error) => new YtDlpError({ message: 'Failed to fetch video metadata', cause: error }),
+      ),
+    );
+
+    if (result.exitCode !== 0) {
+      return yield* Effect.fail(
+        new YtDlpError({
+          message: 'Failed to fetch video metadata',
+          cause: { exitCode: result.exitCode, stderr: result.stderr },
+        }),
+      );
+    }
+
+    const rawMetadata = JSON.parse(result.stdout) as YtDlpMetadata;
+
+    // Convert upload_date from YYYYMMDD to YYYY-MM-DD
+    const uploadDate = rawMetadata.upload_date
+      ? `${rawMetadata.upload_date.slice(0, 4)}-${rawMetadata.upload_date.slice(4, 6)}-${rawMetadata.upload_date.slice(6, 8)}`
+      : null;
+
+    return {
+      videoId: rawMetadata.id,
+      title: rawMetadata.title,
+      description: rawMetadata.description,
+      uploadDate,
+      duration: rawMetadata.duration,
+      viewCount: rawMetadata.view_count,
+      likeCount: rawMetadata.like_count,
+      commentCount: rawMetadata.comment_count,
+      channel: rawMetadata.channel,
+      channelId: rawMetadata.channel_id,
+      channelUrl: rawMetadata.channel_url,
+      channelFollowerCount: rawMetadata.channel_follower_count,
+      thumbnail: rawMetadata.thumbnail,
+      categories: rawMetadata.categories ?? [],
+      tags: rawMetadata.tags ?? [],
+      url: rawMetadata.webpage_url,
+      availability: rawMetadata.availability,
+    };
+  }).pipe(Effect.withLogSpan('getFullVideoMetadata'));
+}
+
+// ============================================================================
+// Audio Processing
+// ============================================================================
 
 function getAudioFileInfo(filePath: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
 
-    // Get file size
     const stat = yield* fs.stat(filePath);
     const fileSizeBytes = Number(stat.size);
     const fileSizeMB = fileSizeBytes / (1024 * 1024);
 
-    // Get duration using ffprobe (accessed via ffmpeg nix package)
     const ffprobeCmdParts = [
       'nix',
       'shell',
@@ -105,78 +208,23 @@ function getAudioFileInfo(filePath: string) {
   });
 }
 
-function getVideoMetadata(url: string) {
-  return Effect.gen(function* () {
-    const cmdParts = [
-      'nix',
-      'run',
-      'nixpkgs#yt-dlp',
-      '--',
-      '--skip-download',
-      '--print',
-      '%(id)s',
-      '--print',
-      '%(title)s',
-      '--print',
-      '%(upload_date)s',
-      url,
-    ] as const;
-
-    const result = yield* CommandUtils.withLog(
-      Command.make(...cmdParts),
-      CommandUtils.runCommandBuffered,
-    ).pipe(
-      Effect.scoped,
-      Effect.mapError(
-        (error) => new YtDlpError({ message: 'Failed to fetch video metadata', cause: error }),
-      ),
-    );
-
-    if (result.exitCode !== 0) {
-      throw new YtDlpError({
-        message: 'Failed to fetch video metadata',
-        cause: { exitCode: result.exitCode, stderr: result.stderr },
-      });
-    }
-
-    yield* Effect.logDebug(`Raw yt-dlp stdout: ${result.stdout}`);
-    yield* Effect.logDebug(`Raw yt-dlp stderr: ${result.stderr}`);
-
-    const lines = result.stdout.trim().split('\n');
-    const [videoId, videoTitle, uploadDateRaw] = lines;
-
-    // Convert YYYYMMDD to ISO date format (YYYY-MM-DD)
-    const uploadDate = uploadDateRaw
-      ? `${uploadDateRaw.slice(0, 4)}-${uploadDateRaw.slice(4, 6)}-${uploadDateRaw.slice(6, 8)}`
-      : null;
-
-    return { videoId, videoTitle, uploadDate };
-  });
-}
-
-function downloadAudioFromYouTube(url: string) {
+function downloadAudioFromYouTube(url: string, videoId: string) {
   return Effect.gen(function* () {
     const config = yield* appConfig;
     const fs = yield* FileSystem.FileSystem;
 
     yield* fs.makeDirectory(config.audioCacheDir, { recursive: true });
 
-    // First, fetch metadata to determine the expected file path
-    yield* Effect.log(`Fetching video metadata for: ${url}`);
-    const { videoId, videoTitle, uploadDate } = yield* getVideoMetadata(url);
+    // Use videoId for consistent cache paths
+    const expectedFilePath = path.join(config.audioCacheDir, `${videoId}.mp3`);
 
-    // Use base64url encoding for clean filenames
-    const encodedTitle = Buffer.from(videoTitle).toString('base64url');
-    const expectedFilePath = path.join(config.audioCacheDir, `${videoId}_${encodedTitle}.mp3`);
-
-    // Check if file already exists
+    // Check if file already exists in cache
     const fileExists = yield* fs.exists(expectedFilePath);
     if (fileExists) {
       yield* Effect.log(`Using cached audio file: ${expectedFilePath}`);
-      return { filePath: expectedFilePath, videoId, videoTitle, uploadDate };
+      return expectedFilePath;
     }
 
-    // Download the audio
     yield* Effect.log(`Downloading audio from: ${url}`);
     const cmdParts = [
       'nix',
@@ -203,42 +251,27 @@ function downloadAudioFromYouTube(url: string) {
     );
 
     if (result.exitCode !== 0) {
-      throw new YtDlpError({
-        message: 'Failed to download audio from YouTube',
-        cause: { exitCode: result.exitCode, stderr: result.stderr },
-      });
+      return yield* Effect.fail(
+        new YtDlpError({
+          message: 'Failed to download audio from YouTube',
+          cause: { exitCode: result.exitCode, stderr: result.stderr },
+        }),
+      );
     }
 
-    yield* Effect.logDebug(`Raw yt-dlp stdout: ${result.stdout}`);
-    yield* Effect.logDebug(`Raw yt-dlp stderr: ${result.stderr}`);
-
     yield* Effect.log(`Audio download completed: ${expectedFilePath}`);
-
-    return {
-      filePath: expectedFilePath,
-      videoId,
-      videoTitle,
-      uploadDate,
-    };
+    return expectedFilePath;
   });
 }
-
-class FfmpegError extends Data.TaggedError('FfmpegError')<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
 
 function preprocessAudio(filePath: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
 
-    // Compute preprocessed file path: replace extension with _16k.mp3
     const dir = path.dirname(filePath);
     const baseName = path.basename(filePath, path.extname(filePath));
-    // Use low bitrate MP3 (32kbps is plenty for 16kHz mono speech)
     const preprocessedPath = path.join(dir, `${baseName}_16k.mp3`);
 
-    // Check if already preprocessed
     const exists = yield* fs.exists(preprocessedPath);
     if (exists) {
       yield* Effect.log(`Using cached preprocessed audio: ${preprocessedPath}`);
@@ -247,11 +280,8 @@ function preprocessAudio(filePath: string) {
 
     yield* Effect.log(`Preprocessing audio to 16kHz mono MP3 (32kbps): ${filePath}`);
 
-    // Ensure output directory exists
     yield* fs.makeDirectory(dir, { recursive: true });
 
-    // ffmpeg -i <input> -ar 16000 -ac 1 -b:a 32k <output>
-    // 32kbps is sufficient for 16kHz mono speech
     const cmdParts = [
       'nix',
       'shell',
@@ -283,14 +313,15 @@ function preprocessAudio(filePath: string) {
     );
 
     if (result.exitCode !== 0) {
-      throw new FfmpegError({
-        message: 'Failed to preprocess audio',
-        cause: { exitCode: result.exitCode, stderr: result.stderr },
-      });
+      return yield* Effect.fail(
+        new FfmpegError({
+          message: 'Failed to preprocess audio',
+          cause: { exitCode: result.exitCode, stderr: result.stderr },
+        }),
+      );
     }
 
     yield* Effect.log(`Audio preprocessing completed: ${preprocessedPath}`);
-
     return preprocessedPath;
   });
 }
@@ -302,19 +333,6 @@ interface AudioChunk {
   endSeconds: number;
 }
 
-/**
- * Split audio file into chunks based on file size AND/OR duration constraints.
- * Uses the minimum number of splits needed to satisfy BOTH constraints (if set).
- * Adds overlap between chunks to avoid cutting words at boundaries.
- *
- * - MAX_CHUNK_SIZE_MB: Optional size constraint (e.g., 24 for Groq's 25MB limit)
- * - MAX_CHUNK_DURATION_SECONDS: Optional duration constraint (e.g., 600 = 10 minutes, recommended by Groq)
- *
- * If neither is set, no splitting occurs.
- *
- * Based on Groq's audio chunking tutorial:
- * https://github.com/groq/groq-api-cookbook/tree/main/tutorials/audio-chunking
- */
 function splitAudio(filePath: string) {
   return Effect.gen(function* () {
     const config = yield* appConfig;
@@ -323,7 +341,6 @@ function splitAudio(filePath: string) {
     const fileInfo = yield* getAudioFileInfo(filePath);
     const overlapSeconds = config.chunkOverlapSeconds;
 
-    // Calculate chunks needed for each constraint (if set)
     let chunksForSize = 1;
     let chunksForDuration = 1;
 
@@ -344,10 +361,8 @@ function splitAudio(filePath: string) {
       );
     }
 
-    // Use the maximum to satisfy BOTH constraints
     const numChunks = Math.max(chunksForSize, chunksForDuration);
 
-    // If only 1 chunk needed, no splitting required
     if (numChunks <= 1) {
       yield* Effect.log(
         `No splitting needed (size: ${fileInfo.formattedSize}, duration: ${fileInfo.formattedDuration})`,
@@ -384,7 +399,6 @@ function splitAudio(filePath: string) {
 
       const chunkPath = path.join(dir, `${baseName}_chunk${i}${ext}`);
 
-      // Check if chunk already exists (caching)
       const chunkExists = yield* fs.exists(chunkPath);
       if (chunkExists) {
         yield* Effect.log(`Using cached chunk ${i}: ${chunkPath}`);
@@ -396,7 +410,6 @@ function splitAudio(filePath: string) {
         `Creating chunk ${i + 1}/${numChunks}: ${startSeconds.toFixed(1)}s - ${endSeconds.toFixed(1)}s`,
       );
 
-      // Use ffmpeg to extract the chunk
       const cmdParts = [
         'nix',
         'shell',
@@ -426,10 +439,12 @@ function splitAudio(filePath: string) {
       );
 
       if (result.exitCode !== 0) {
-        throw new FfmpegError({
-          message: `Failed to create chunk ${i}`,
-          cause: { exitCode: result.exitCode, stderr: result.stderr },
-        });
+        return yield* Effect.fail(
+          new FfmpegError({
+            message: `Failed to create chunk ${i}`,
+            cause: { exitCode: result.exitCode, stderr: result.stderr },
+          }),
+        );
       }
 
       chunks.push({ filePath: chunkPath, chunkIndex: i, startSeconds, endSeconds });
@@ -439,6 +454,10 @@ function splitAudio(filePath: string) {
     return chunks;
   }).pipe(Effect.withLogSpan('splitAudio'));
 }
+
+// ============================================================================
+// S3 Operations
+// ============================================================================
 
 function checkS3Exists(options: { bucket: string; key: string }) {
   return Effect.gen(function* () {
@@ -454,9 +473,6 @@ function checkS3Exists(options: { bucket: string; key: string }) {
   });
 }
 
-/**
- * Generates a presigned URL for an S3 object.
- */
 function generatePresignedUrl(options: { bucket: string; key: string; expiresIn: number }) {
   return Effect.gen(function* () {
     const config = yield* appConfig;
@@ -485,20 +501,11 @@ function generatePresignedUrl(options: { bucket: string; key: string; expiresIn:
   });
 }
 
-/**
- * Uploads audio to S3 and returns a URL for accessing it.
- *
- * Behavior depends on USE_PRESIGNED_LINKS config:
- * - true: Uses presigned URLs (works with standard S3 and compatible storage like rustfs)
- * - false: Uses public-read ACL (fallback for storage that doesn't support presigned URLs,
- *   e.g., Alarik - see https://github.com/achtungsoftware/alarik/issues/1)
- */
 function uploadAudioToS3(options: { filePath: string; key: string; bucket: string }) {
   return Effect.gen(function* () {
     const config = yield* appConfig;
     const fs = yield* FileSystem.FileSystem;
 
-    // Check if already uploaded
     const exists = yield* checkS3Exists({ bucket: options.bucket, key: options.key });
     if (exists) {
       yield* Effect.log(`Audio already exists in S3: ${options.key}`);
@@ -522,7 +529,6 @@ function uploadAudioToS3(options: { filePath: string; key: string; bucket: strin
     const fileContent = yield* fs.readFile(options.filePath);
 
     if (config.usePresignedLinks) {
-      // Upload without ACL, use presigned URL for access
       yield* S3.putObject({
         Bucket: options.bucket,
         Key: options.key,
@@ -541,7 +547,6 @@ function uploadAudioToS3(options: { filePath: string; key: string; bucket: strin
 
       return presignedUrl;
     } else {
-      // Upload with public-read ACL for storage that doesn't support presigned URLs
       yield* S3.putObject({
         Bucket: options.bucket,
         Key: options.key,
@@ -560,16 +565,16 @@ function uploadAudioToS3(options: { filePath: string; key: string; bucket: strin
   });
 }
 
+// ============================================================================
+// Transcription
+// ============================================================================
+
 interface ChunkTranscription {
   chunkIndex: number;
   text: string;
-  response: unknown; // Raw Groq API response
+  response: unknown;
 }
 
-/**
- * Transcribe a single audio chunk.
- * Returns the transcription text and raw response for this chunk.
- */
 function transcribeChunk(options: {
   audioUrl: string;
   chunkIndex: number;
@@ -609,30 +614,18 @@ function transcribeChunk(options: {
   }).pipe(Effect.withLogSpan(`transcribeChunk-${options.chunkIndex}`));
 }
 
-/**
- * Merge overlapping transcription chunks.
- * Uses simple word-level deduplication at boundaries.
- *
- * Based on Groq's audio chunking tutorial:
- * https://github.com/groq/groq-api-cookbook/tree/main/tutorials/audio-chunking
- */
 function mergeTranscripts(chunks: ChunkTranscription[]): string {
   if (chunks.length === 0) return '';
   if (chunks.length === 1) return chunks[0].text;
 
-  // Sort by chunk index to ensure correct order
   const sorted = [...chunks].sort((a, b) => a.chunkIndex - b.chunkIndex);
 
-  // Simple merge: join with space, then clean up duplicate words at boundaries
-  // For overlapping chunks, the same words may appear at the end of one chunk
-  // and the start of the next. We do a simple deduplication.
   let result = sorted[0].text;
 
   for (let i = 1; i < sorted.length; i++) {
-    const prevWords = result.split(/\s+/).slice(-10); // Last 10 words of previous
+    const prevWords = result.split(/\s+/).slice(-10);
     const nextWords = sorted[i].text.split(/\s+/);
 
-    // Find overlap by looking for matching sequences
     let overlapStart = 0;
     for (let j = 1; j <= Math.min(prevWords.length, 10); j++) {
       const prevEnd = prevWords.slice(-j).join(' ').toLowerCase();
@@ -642,134 +635,143 @@ function mergeTranscripts(chunks: ChunkTranscription[]): string {
       }
     }
 
-    // Skip the overlapping words from the next chunk
     const mergedNext = nextWords.slice(overlapStart).join(' ');
     result = result + ' ' + mergedNext;
   }
 
-  // Clean up multiple spaces
   return result.replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Sanitize a string for use as a filename.
- * Removes/replaces characters that are problematic in filenames.
- */
-function sanitizeFilename(title: string): string {
-  return (
-    title
-      // Replace special dashes with regular dash
-      .replace(/[–—]/g, '-')
-      // Remove characters that are problematic in filenames
-      .replace(/[<>:"/\\|?*]/g, '')
-      // Replace multiple spaces/underscores with single space
-      .replace(/[\s_]+/g, ' ')
-      // Trim whitespace
-      .trim()
-      // Replace spaces with underscores for cleaner filenames
-      .replace(/\s+/g, '_')
-      // Limit length to avoid filesystem issues
-      .slice(0, 200)
-  );
-}
+// ============================================================================
+// File Operations
+// ============================================================================
 
-interface TranscriptOutput {
-  createdAt: string;
-  videoMetadata: {
-    videoId: string;
-    title: string;
-    url: string;
-    uploadDate: string | null;
-  };
-  transcript: string;
-  rawResponses: unknown[];
-}
-
-function transcribeAudio(options: {
-  chunkUrls: string[];
-  videoId: string;
-  videoTitle: string;
-  videoUrl: string;
-  uploadDate: string | null;
-  language?: string;
-}) {
+function getMetadataPath(videoId: string) {
   return Effect.gen(function* () {
-    yield* Effect.log(`Transcribing ${options.chunkUrls.length} audio chunk(s)...`);
+    const config = yield* appConfig;
+    return path.join(config.podcastsMetadataDir, `${videoId}.json`);
+  });
+}
 
+function getTranscriptPath(videoId: string) {
+  return Effect.gen(function* () {
+    const config = yield* appConfig;
+    return path.join(config.transcriptsDir, `${videoId}.json`);
+  });
+}
+
+function readPodcastMetadata(videoId: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const metadataPath = yield* getMetadataPath(videoId);
+
+    const exists = yield* fs.exists(metadataPath);
+    if (!exists) {
+      return yield* Effect.fail(
+        new MetadataError({ message: `Metadata not found for video: ${videoId}` }),
+      );
+    }
+
+    const content = yield* fs.readFileString(metadataPath);
+    return JSON.parse(content) as PodcastMetadata;
+  });
+}
+
+function writePodcastMetadata(metadata: PodcastMetadata) {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const config = yield* appConfig;
 
-    yield* fs.makeDirectory(config.contentDir, { recursive: true });
+    yield* fs.makeDirectory(config.podcastsMetadataDir, { recursive: true });
 
-    // Transcribe all chunks in parallel with limited concurrency
-    const transcribeEffects = options.chunkUrls.map((url, i) =>
-      transcribeChunk({
-        audioUrl: url,
-        chunkIndex: i,
-        totalChunks: options.chunkUrls.length,
-        language: options.language,
-      }),
-    );
+    const metadataPath = yield* getMetadataPath(metadata.videoId);
+    yield* fs.writeFileString(metadataPath, JSON.stringify(metadata, null, 2));
 
-    const chunkResults = yield* Effect.all(transcribeEffects, { concurrency: 3 });
-
-    yield* Effect.log(`All ${chunkResults.length} chunks transcribed, merging...`);
-
-    // Merge the transcripts
-    const mergedText = mergeTranscripts(chunkResults);
-
-    // Build the output JSON structure
-    const output: TranscriptOutput = {
-      createdAt: new Date().toISOString(),
-      videoMetadata: {
-        videoId: options.videoId,
-        title: options.videoTitle,
-        url: options.videoUrl,
-        uploadDate: options.uploadDate,
-      },
-      transcript: mergedText,
-      rawResponses: chunkResults.map((r) => r.response),
-    };
-
-    const cleanTitle = sanitizeFilename(options.videoTitle);
-    const outputFilename = `${options.videoId}_${cleanTitle}.json`;
-    const outputPath = path.join(config.contentDir, outputFilename);
-
-    yield* fs.writeFileString(outputPath, JSON.stringify(output, null, 2));
-
-    yield* Effect.log(`Transcript saved to: ${outputPath} (${mergedText.length} chars)`);
-
-    return {
-      text: mergedText,
-      outputPath,
-      output,
-    };
-  }).pipe(Effect.withLogSpan('transcribeAudio'));
+    yield* Effect.log(`Metadata saved to: ${metadataPath}`);
+  });
 }
 
-export function getTranscriptFromYouTube(url: string) {
+function writeTranscript(transcript: Transcript) {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const config = yield* appConfig;
+
+    yield* fs.makeDirectory(config.transcriptsDir, { recursive: true });
+
+    const transcriptPath = yield* getTranscriptPath(transcript.videoId);
+    yield* fs.writeFileString(transcriptPath, JSON.stringify(transcript, null, 2));
+
+    yield* Effect.log(`Transcript saved to: ${transcriptPath}`);
+  });
+}
+
+function listAllVideoIds() {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const config = yield* appConfig;
+
+    const exists = yield* fs.exists(config.podcastsMetadataDir);
+    if (!exists) {
+      return [];
+    }
+
+    const files = yield* fs.readDirectory(config.podcastsMetadataDir);
+    return files.filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', ''));
+  });
+}
+
+function checkTranscriptExists(videoId: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const transcriptPath = yield* getTranscriptPath(videoId);
+    return yield* fs.exists(transcriptPath);
+  });
+}
+
+// ============================================================================
+// Main Pipeline Functions
+// ============================================================================
+
+/**
+ * Full pipeline: download, process, transcribe, save
+ */
+function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
+  return Effect.gen(function* () {
+    const config = yield* appConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const now = new Date().toISOString();
+
     yield* Effect.log(`Starting transcript pipeline for: ${url}`);
 
-    const config = yield* appConfig;
-    const fs = yield* FileSystem.FileSystem;
+    // 1. Fetch full metadata from YouTube
+    yield* Effect.log('Fetching video metadata...');
+    const videoMeta = yield* getFullVideoMetadata(url);
 
-    const { filePath, videoId, videoTitle, uploadDate } = yield* downloadAudioFromYouTube(url);
+    // Check if already exists
+    const metadataPath = yield* getMetadataPath(videoMeta.videoId);
+    const metadataExists = yield* fs.exists(metadataPath);
 
-    // Preprocess audio to 16kHz mono MP3 for smaller size
-    const preprocessedPath = yield* preprocessAudio(filePath);
+    if (metadataExists && options.skipIfExists) {
+      yield* Effect.log(`Video ${videoMeta.videoId} already exists, skipping`);
+      return { skipped: true, videoId: videoMeta.videoId };
+    }
 
-    const fileInfo = yield* getAudioFileInfo(preprocessedPath);
-    yield* Effect.log(`Audio file size: ${fileInfo.formattedSize}`);
-    yield* Effect.log(`Audio duration: ${fileInfo.formattedDuration}`);
+    // 2. Download and preprocess audio
+    const audioPath = yield* downloadAudioFromYouTube(url, videoMeta.videoId);
+    const originalInfo = yield* getAudioFileInfo(audioPath);
 
-    // Split audio into chunks if needed (based on file size)
+    const preprocessedPath = yield* preprocessAudio(audioPath);
+    const preprocessedInfo = yield* getAudioFileInfo(preprocessedPath);
+
+    yield* Effect.log(`Audio file size: ${preprocessedInfo.formattedSize}`);
+    yield* Effect.log(`Audio duration: ${preprocessedInfo.formattedDuration}`);
+
+    // 3. Split audio into chunks if needed
     const chunks = yield* splitAudio(preprocessedPath);
 
-    // Upload all chunks to S3 in parallel
-    const encodedTitle = Buffer.from(videoTitle).toString('base64url');
+    // 4. Upload chunks to S3
     const uploadEffects = chunks.map((chunk) => {
-      const s3Key = `audio/${videoId}_${encodedTitle}_chunk${chunk.chunkIndex}.mp3`;
+      const s3Key = `audio/${videoMeta.videoId}_chunk${chunk.chunkIndex}.mp3`;
       return uploadAudioToS3({
         filePath: chunk.filePath,
         key: s3Key,
@@ -782,33 +784,334 @@ export function getTranscriptFromYouTube(url: string) {
       Effect.withLogSpan('uploadChunks'),
     );
 
-    // Transcribe all chunks
-    const result = yield* transcribeAudio({
-      chunkUrls,
-      videoId,
-      videoTitle,
-      videoUrl: url,
-      uploadDate,
-    });
+    // 5. Transcribe all chunks
+    yield* Effect.log(`Transcribing ${chunkUrls.length} audio chunk(s)...`);
 
-    // Clean up local files
-    yield* Effect.log(`Cleaning up local audio files`);
-    yield* fs.remove(filePath);
-    yield* fs.remove(preprocessedPath);
+    const transcribeEffects = chunkUrls.map((audioUrl, i) =>
+      transcribeChunk({
+        audioUrl,
+        chunkIndex: i,
+        totalChunks: chunkUrls.length,
+      }),
+    );
 
-    // Clean up chunk files (if they're different from preprocessed)
+    const chunkResults = yield* Effect.all(transcribeEffects, { concurrency: 3 });
+
+    yield* Effect.log(`All ${chunkResults.length} chunks transcribed, merging...`);
+    const mergedText = mergeTranscripts(chunkResults);
+
+    // 6. Build and save metadata
+    const metadata: PodcastMetadata = {
+      schemaVersion: '1.0.0',
+      videoId: videoMeta.videoId,
+      url: videoMeta.url,
+      metadataCreatedAt: now,
+      metadataLastSyncedAt: now,
+      transcriptCreatedAt: now,
+      title: videoMeta.title,
+      description: videoMeta.description,
+      uploadDate: videoMeta.uploadDate,
+      duration: videoMeta.duration,
+      viewCount: videoMeta.viewCount,
+      likeCount: videoMeta.likeCount,
+      commentCount: videoMeta.commentCount,
+      channel: videoMeta.channel,
+      channelId: videoMeta.channelId,
+      channelUrl: videoMeta.channelUrl,
+      channelFollowerCount: videoMeta.channelFollowerCount,
+      thumbnail: videoMeta.thumbnail,
+      categories: videoMeta.categories,
+      tags: videoMeta.tags,
+      availability: videoMeta.availability,
+    };
+
+    yield* writePodcastMetadata(metadata);
+
+    // 7. Build and save transcript
+    const audioMetadata: AudioMetadata = {
+      originalFileSizeBytes: originalInfo.fileSizeBytes,
+      preprocessedFileSizeBytes: preprocessedInfo.fileSizeBytes,
+      durationSeconds: preprocessedInfo.durationSeconds,
+      formattedDuration: preprocessedInfo.formattedDuration,
+    };
+
+    const transcript: Transcript = {
+      schemaVersion: '1.0.0',
+      videoId: videoMeta.videoId,
+      createdAt: now,
+      audioMetadata,
+      transcript: mergedText,
+      rawResponses: chunkResults.map((r) => r.response),
+    };
+
+    yield* writeTranscript(transcript);
+
+    // 8. Clean up local audio files
+    yield* Effect.log('Cleaning up local audio files...');
+    yield* fs.remove(audioPath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    yield* fs.remove(preprocessedPath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
     for (const chunk of chunks) {
       if (chunk.filePath !== preprocessedPath) {
         yield* fs.remove(chunk.filePath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       }
     }
 
-    yield* Effect.log('Transcript pipeline completed successfully');
+    yield* Effect.log(`Transcript pipeline completed for: ${videoMeta.videoId}`);
 
-    return result;
-  }).pipe(Effect.withLogSpan('getTranscriptFromYouTube'));
+    return {
+      skipped: false,
+      videoId: videoMeta.videoId,
+      title: videoMeta.title,
+      transcriptLength: mergedText.length,
+    };
+  }).pipe(Effect.withLogSpan('processVideo'));
 }
 
+/**
+ * Update metadata only (no re-transcription)
+ */
+function updateVideoMetadata(videoId: string) {
+  return Effect.gen(function* () {
+    const now = new Date().toISOString();
+
+    // Read existing metadata
+    const existingMetadata = yield* readPodcastMetadata(videoId);
+
+    yield* Effect.log(`Updating metadata for: ${existingMetadata.title}`);
+
+    // Fetch fresh metadata from YouTube
+    const freshMeta = yield* getFullVideoMetadata(existingMetadata.url);
+
+    // Merge: keep original creation timestamp, update sync timestamp
+    const updatedMetadata: PodcastMetadata = {
+      ...existingMetadata,
+      metadataLastSyncedAt: now,
+      title: freshMeta.title,
+      description: freshMeta.description,
+      duration: freshMeta.duration,
+      viewCount: freshMeta.viewCount,
+      likeCount: freshMeta.likeCount,
+      commentCount: freshMeta.commentCount,
+      channelFollowerCount: freshMeta.channelFollowerCount,
+      thumbnail: freshMeta.thumbnail,
+      categories: freshMeta.categories,
+      tags: freshMeta.tags,
+      availability: freshMeta.availability,
+    };
+
+    yield* writePodcastMetadata(updatedMetadata);
+
+    // If transcript exists, update its metadata section too
+    const transcriptExists = yield* checkTranscriptExists(videoId);
+    if (transcriptExists) {
+      yield* Effect.log('Transcript exists, metadata updated in metadata file only');
+    }
+
+    yield* Effect.log(`Metadata updated for: ${videoId}`);
+    return { videoId, title: updatedMetadata.title };
+  }).pipe(Effect.withLogSpan('updateVideoMetadata'));
+}
+
+// ============================================================================
+// CLI Commands
+// ============================================================================
+
+// Add command
+const addUrlArg = Cli.Args.text({ name: 'url' }).pipe(
+  Cli.Args.withDescription('YouTube video URL to transcribe'),
+);
+
+const addCommand = Cli.Command.make('add', { url: addUrlArg }, ({ url }) =>
+  Effect.gen(function* () {
+    yield* Effect.log(`Adding new video: ${url}`);
+    const result = yield* processVideo(url);
+
+    if (result.skipped) {
+      yield* Effect.log(`Video ${result.videoId} already exists`);
+    } else {
+      yield* Effect.log(`Successfully added: ${result.title} (${result.transcriptLength} chars)`);
+    }
+  }).pipe(Effect.orDie),
+).pipe(Cli.Command.withDescription('Add a new video (fetch metadata + create transcript)'));
+
+// Update metadata command
+const updateMetadataVideoIdArg = Cli.Args.text({ name: 'videoId' }).pipe(
+  Cli.Args.withDescription('Video ID to update metadata for'),
+  Cli.Args.optional,
+);
+
+const updateMetadataAllOption = Cli.Options.boolean('all').pipe(
+  Cli.Options.withAlias('a'),
+  Cli.Options.withDescription('Update metadata for all videos'),
+  Cli.Options.withDefault(false),
+);
+
+const updateMetadataCommand = Cli.Command.make(
+  'update-metadata',
+  { videoId: updateMetadataVideoIdArg, all: updateMetadataAllOption },
+  ({ videoId, all }) =>
+    Effect.gen(function* () {
+      if (all) {
+        yield* Effect.log('Updating metadata for all videos...');
+        const videoIds = yield* listAllVideoIds();
+
+        if (videoIds.length === 0) {
+          yield* Effect.log('No videos found in metadata directory');
+          return;
+        }
+
+        yield* Effect.log(`Found ${videoIds.length} videos to update`);
+
+        for (const id of videoIds) {
+          yield* updateVideoMetadata(id).pipe(
+            Effect.catchAll((error) => {
+              const message = 'message' in error ? error.message : JSON.stringify(error);
+              return Effect.log(`Failed to update ${id}: ${message}`);
+            }),
+          );
+        }
+
+        yield* Effect.log(`Updated metadata for ${videoIds.length} videos`);
+      } else if (Option.isSome(videoId)) {
+        yield* updateVideoMetadata(videoId.value);
+      } else {
+        yield* Effect.log('Please provide a video ID or use --all flag');
+      }
+    }).pipe(Effect.orDie),
+).pipe(
+  Cli.Command.withDescription('Update metadata for existing video(s) without re-transcribing'),
+);
+
+// Reprocess transcript command
+const reprocessVideoIdArg = Cli.Args.text({ name: 'videoId' }).pipe(
+  Cli.Args.withDescription('Video ID to reprocess transcript for'),
+  Cli.Args.optional,
+);
+
+const reprocessAllOption = Cli.Options.boolean('all').pipe(
+  Cli.Options.withAlias('a'),
+  Cli.Options.withDescription('Reprocess transcripts for all videos'),
+  Cli.Options.withDefault(false),
+);
+
+const reprocessTranscriptCommand = Cli.Command.make(
+  'reprocess-transcript',
+  { videoId: reprocessVideoIdArg, all: reprocessAllOption },
+  ({ videoId, all }) =>
+    Effect.gen(function* () {
+      if (all) {
+        yield* Effect.log('Reprocessing transcripts for all videos...');
+        const videoIds = yield* listAllVideoIds();
+
+        if (videoIds.length === 0) {
+          yield* Effect.log('No videos found in metadata directory');
+          return;
+        }
+
+        yield* Effect.log(`Found ${videoIds.length} videos to reprocess`);
+
+        for (const id of videoIds) {
+          const metadata = yield* readPodcastMetadata(id);
+          yield* processVideo(metadata.url).pipe(
+            Effect.catchAll((error) => {
+              const message = 'message' in error ? error.message : JSON.stringify(error);
+              return Effect.log(`Failed to reprocess ${id}: ${message}`);
+            }),
+          );
+        }
+
+        yield* Effect.log(`Reprocessed transcripts for ${videoIds.length} videos`);
+      } else if (Option.isSome(videoId)) {
+        const metadata = yield* readPodcastMetadata(videoId.value);
+        yield* processVideo(metadata.url);
+      } else {
+        yield* Effect.log('Please provide a video ID or use --all flag');
+      }
+    }).pipe(Effect.orDie),
+).pipe(Cli.Command.withDescription('Re-download audio and re-transcribe video(s)'));
+
+// Rebuild command (for self-hosting)
+const rebuildVideoIdOption = Cli.Options.text('video-id').pipe(
+  Cli.Options.withDescription('Specific video ID to rebuild'),
+  Cli.Options.optional,
+);
+
+const rebuildForceOption = Cli.Options.boolean('force').pipe(
+  Cli.Options.withAlias('f'),
+  Cli.Options.withDescription('Force rebuild even if transcript exists'),
+  Cli.Options.withDefault(false),
+);
+
+const rebuildCommand = Cli.Command.make(
+  'rebuild',
+  { videoId: rebuildVideoIdOption, force: rebuildForceOption },
+  ({ videoId, force }) =>
+    Effect.gen(function* () {
+      yield* Effect.log('Rebuilding transcripts from metadata...');
+      yield* Effect.log('This command is for self-hosters to generate their own transcripts.');
+
+      const videoIds = Option.isSome(videoId) ? [videoId.value] : yield* listAllVideoIds();
+
+      if (videoIds.length === 0) {
+        yield* Effect.log('No videos found in metadata directory');
+        return;
+      }
+
+      yield* Effect.log(`Found ${videoIds.length} video(s) to rebuild`);
+
+      let processed = 0;
+      let skipped = 0;
+
+      for (const id of videoIds) {
+        const transcriptExists = yield* checkTranscriptExists(id);
+
+        if (transcriptExists && !force) {
+          yield* Effect.log(`Skipping ${id} (transcript exists, use --force to override)`);
+          skipped++;
+          continue;
+        }
+
+        const metadata = yield* readPodcastMetadata(id);
+        yield* Effect.log(`Rebuilding transcript for: ${metadata.title}`);
+
+        yield* processVideo(metadata.url).pipe(
+          Effect.catchAll((error) => {
+            const message = 'message' in error ? error.message : JSON.stringify(error);
+            return Effect.log(`Failed to rebuild ${id}: ${message}`);
+          }),
+        );
+        processed++;
+      }
+
+      yield* Effect.log(`Rebuild complete: ${processed} processed, ${skipped} skipped`);
+    }).pipe(Effect.orDie),
+).pipe(
+  Cli.Command.withDescription(
+    'Rebuild transcripts from metadata (for self-hosting). Iterates over podcasts-metadata/',
+  ),
+);
+
+// Root command with subcommands
+const rootCommand = Cli.Command.make('get-transcript', {}).pipe(
+  Cli.Command.withSubcommands([
+    addCommand,
+    updateMetadataCommand,
+    reprocessTranscriptCommand,
+    rebuildCommand,
+  ]),
+  Cli.Command.withDescription('Podcast transcript CLI for managing video transcriptions'),
+);
+
+// ============================================================================
+// Main
+// ============================================================================
+
+/**
+ * Creates the S3 layer from config.
+ * Only used by commands that need S3 (add, reprocess-transcript, rebuild).
+ * Uses Effect.catchAll to allow CLI to start without S3 config (for --help).
+ */
 const s3Layer = Layer.unwrapEffect(
   Effect.gen(function* () {
     const config = yield* appConfig;
@@ -824,22 +1127,26 @@ const s3Layer = Layer.unwrapEffect(
       forcePathStyle: true,
       region: 'us-east-1',
     });
-  }),
+  }).pipe(
+    Effect.catchAll(() =>
+      // Return a layer that will fail when actually used
+      Effect.succeed(
+        S3.layer({
+          endpoint: 'http://localhost:9000',
+          credentials: { accessKeyId: '', secretAccessKey: '' },
+          forcePathStyle: true,
+          region: 'us-east-1',
+        }),
+      ),
+    ),
+  ),
 );
 
 const services = Layer.mergeAll(BunContext.layer, s3Layer);
 
-const command = Cli.Command.make('get-transcript', {}, () =>
-  Effect.gen(function* () {
-    yield* Effect.log('Getting transcript...');
-    const subtitles = yield* getTranscriptFromYouTube(videoUrl);
-    yield* Effect.log(subtitles);
-  }).pipe(Effect.orDie),
-);
-
-const cli = Cli.Command.run(command, {
-  name: 'Get Transcript CLI',
-  version: 'v0.0.1',
+const cli = Cli.Command.run(rootCommand, {
+  name: 'Podcast Transcript CLI',
+  version: 'v1.0.0',
 });
 
 cli(process.argv).pipe(Effect.provide(services), BunRuntime.runMain);

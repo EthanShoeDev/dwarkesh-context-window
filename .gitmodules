@@ -1,0 +1,3 @@
+[submodule "src/content/transcripts"]
+	path = src/content/transcripts
+	url = https://github.com/EthanShoeDev/dwarkesh-transcripts.git
