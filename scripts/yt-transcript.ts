@@ -763,7 +763,8 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
       availability: videoMeta.availability,
     });
 
-    yield* writePodcastMetadata(metadata);
+    const fileService = yield* FileService;
+    yield* fileService.writePodcastMetadata(metadata);
 
     // 7. Build and save transcript
     const audioMetadata: typeof AudioMetadataSchema.Type = {
@@ -781,7 +782,7 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
       groqResponses: chunkResults.map((r) => r.response),
     };
 
-    yield* writeTranscript(transcript);
+    yield* fileService.writeTranscript(transcript);
 
     // // 8. Clean up local audio files
     // yield* Effect.log('Cleaning up local audio files...');
@@ -822,14 +823,20 @@ function updateVideoMetadata(videoId: string) {
     const freshMeta = yield* ytDlpService.dumpJsonSkipDownload(existingMetadata.youtubeUrl);
 
     const updatedMetadata = new PodcastMetadataSchema({
-      ...existingMetadata,
+      schemaVersion: existingMetadata.schemaVersion,
+      youtubeVideoId: existingMetadata.youtubeVideoId,
+      metadataCreatedAt: existingMetadata.metadataCreatedAt,
       metadataLastSyncedAt: now,
       title: freshMeta.title,
       description: freshMeta.description,
+      uploadedAt: existingMetadata.uploadedAt,
       duration: Duration.seconds(freshMeta.duration),
       viewCount: freshMeta.view_count,
       likeCount: freshMeta.like_count,
       commentCount: freshMeta.comment_count,
+      channel: freshMeta.channel,
+      channelId: freshMeta.channel_id,
+      channelUrl: freshMeta.channel_url,
       channelFollowerCount: freshMeta.channel_follower_count,
       thumbnail: freshMeta.thumbnail,
       categories: freshMeta.categories,
@@ -951,9 +958,9 @@ const reprocessTranscriptCommand = Cli.Command.make(
 
         for (const id of videoIds) {
           const metadata = yield* fileService.readPodcastMetadata(id);
-          yield* processVideo(metadata.url).pipe(
-            Effect.catchAll((error) => {
-              const message = 'message' in error ? error.message : JSON.stringify(error);
+          yield* processVideo(metadata.youtubeUrl).pipe(
+            Effect.catchAll((error: unknown) => {
+              const message = error instanceof Error ? error.message : JSON.stringify(error);
               return Effect.log(`Failed to reprocess ${id}: ${message}`);
             }),
           );
@@ -961,8 +968,8 @@ const reprocessTranscriptCommand = Cli.Command.make(
 
         yield* Effect.log(`Reprocessed transcripts for ${videoIds.length} videos`);
       } else if (Option.isSome(videoId)) {
-        const metadata = yield* readPodcastMetadata(videoId.value);
-        yield* processVideo(metadata.url);
+        const metadata = yield* fileService.readPodcastMetadata(videoId.value);
+        yield* processVideo(metadata.youtubeUrl);
       } else {
         yield* Effect.log('Please provide a video ID or use --all flag');
       }
@@ -986,10 +993,14 @@ const rebuildCommand = Cli.Command.make(
   { videoId: rebuildVideoIdOption, force: rebuildForceOption },
   ({ videoId, force }) =>
     Effect.gen(function* () {
+      const fileService = yield* FileService;
+
       yield* Effect.log('Rebuilding transcripts from metadata...');
       yield* Effect.log('This command is for self-hosters to generate their own transcripts.');
 
-      const videoIds = Option.isSome(videoId) ? [videoId.value] : yield* listAllVideoIds();
+      const videoIds = Option.isSome(videoId)
+        ? [videoId.value]
+        : yield* fileService.listAllVideoIds();
 
       if (videoIds.length === 0) {
         yield* Effect.log('No videos found in metadata directory');
@@ -1002,7 +1013,7 @@ const rebuildCommand = Cli.Command.make(
       let skipped = 0;
 
       for (const id of videoIds) {
-        const transcriptExists = yield* checkTranscriptExists(id);
+        const transcriptExists = yield* fileService.checkTranscriptExists(id);
 
         if (transcriptExists && !force) {
           yield* Effect.log(`Skipping ${id} (transcript exists, use --force to override)`);
@@ -1010,12 +1021,12 @@ const rebuildCommand = Cli.Command.make(
           continue;
         }
 
-        const metadata = yield* readPodcastMetadata(id);
+        const metadata = yield* fileService.readPodcastMetadata(id);
         yield* Effect.log(`Rebuilding transcript for: ${metadata.title}`);
 
-        yield* processVideo(metadata.url).pipe(
-          Effect.catchAll((error) => {
-            const message = 'message' in error ? error.message : JSON.stringify(error);
+        yield* processVideo(metadata.youtubeUrl).pipe(
+          Effect.catchAll((error: unknown) => {
+            const message = error instanceof Error ? error.message : JSON.stringify(error);
             return Effect.log(`Failed to rebuild ${id}: ${message}`);
           }),
         );
@@ -1053,21 +1064,17 @@ const rootCommand = Cli.Command.make('yt-transcript', {}).pipe(
 const s3Layer = Layer.unwrapEffect(
   Effect.gen(function* () {
     const config = yield* appConfig;
-    const accessKey = Redacted.value(config.s3AccessKey);
-    const secretKey = Redacted.value(config.s3SecretKey);
-
     return S3.layer({
       endpoint: config.s3Endpoint,
       credentials: {
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
+        accessKeyId: Redacted.value(config.s3AccessKey),
+        secretAccessKey: Redacted.value(config.s3SecretKey),
       },
       forcePathStyle: true,
       region: 'us-east-1',
     });
   }).pipe(
     Effect.catchAll(() =>
-      // Return a layer that will fail when actually used
       Effect.succeed(
         S3.layer({
           endpoint: 'http://localhost:9000',
@@ -1080,11 +1087,21 @@ const s3Layer = Layer.unwrapEffect(
   ),
 );
 
-const services = Layer.mergeAll(BunContext.layer, s3Layer);
+const BaseLayers = Layer.mergeAll(BunContext.layer, s3Layer);
+
+const ServiceLayers = Layer.mergeAll(
+  YtDlpService.Default,
+  FfmpegService.Default,
+  TranscriptionService.Default,
+  FileService.Default,
+  BucketStorageService.Default,
+).pipe(Layer.provide(BaseLayers));
+
+const AppLayer = Layer.mergeAll(BaseLayers, ServiceLayers);
 
 const cli = Cli.Command.run(rootCommand, {
-  name: 'Podcast Transcript CLI',
+  name: 'YouTube Transcript CLI',
   version: 'v1.0.0',
 });
 
-cli(process.argv).pipe(Effect.provide(services), BunRuntime.runMain);
+cli(process.argv).pipe(Effect.scoped, Effect.provide(AppLayer), BunRuntime.runMain);
