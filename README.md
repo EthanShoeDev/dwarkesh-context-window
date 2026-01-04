@@ -33,8 +33,8 @@ I wanted to give it a shot.
 
 - [x] Get all software tools installed and configured correctly.
 - [x] Write a script that can get the transcript from a podcast episode.
-- [ ] Write a script that will prompt an llm with the script and output markdown.
-- [ ] Render the md content
+- [x] Write a script that will prompt an llm with the script and output markdown.
+- [-] Render the md content
 - [ ] Style the site
 
 # Potential Future Features
