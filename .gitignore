@@ -17,3 +17,4 @@ todos.json
 tmp/
 .bun-tmp/
 .content-collections/
+.vercel
