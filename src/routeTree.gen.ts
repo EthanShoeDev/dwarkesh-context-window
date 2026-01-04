@@ -8,80 +8,80 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root';
-import { Route as IndexRouteImport } from './routes/index';
-import { Route as LlmIndexRouteImport } from './routes/llm/index';
-import { Route as LlmVideoIdModelRouteImport } from './routes/llm/$videoId/$model';
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as LlmIndexRouteImport } from './routes/llm/index'
+import { Route as LlmVideoIdModelRouteImport } from './routes/llm/$videoId/$model'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const LlmIndexRoute = LlmIndexRouteImport.update({
   id: '/llm/',
   path: '/llm/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const LlmVideoIdModelRoute = LlmVideoIdModelRouteImport.update({
   id: '/llm/$videoId/$model',
   path: '/llm/$videoId/$model',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute;
-  '/llm': typeof LlmIndexRoute;
-  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute;
+  '/': typeof IndexRoute
+  '/llm': typeof LlmIndexRoute
+  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute;
-  '/llm': typeof LlmIndexRoute;
-  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute;
+  '/': typeof IndexRoute
+  '/llm': typeof LlmIndexRoute
+  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  '/': typeof IndexRoute;
-  '/llm/': typeof LlmIndexRoute;
-  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/llm/': typeof LlmIndexRoute
+  '/llm/$videoId/$model': typeof LlmVideoIdModelRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: '/' | '/llm' | '/llm/$videoId/$model';
-  fileRoutesByTo: FileRoutesByTo;
-  to: '/' | '/llm' | '/llm/$videoId/$model';
-  id: '__root__' | '/' | '/llm/' | '/llm/$videoId/$model';
-  fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/llm' | '/llm/$videoId/$model'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/llm' | '/llm/$videoId/$model'
+  id: '__root__' | '/' | '/llm/' | '/llm/$videoId/$model'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  LlmIndexRoute: typeof LlmIndexRoute;
-  LlmVideoIdModelRoute: typeof LlmVideoIdModelRoute;
+  IndexRoute: typeof IndexRoute
+  LlmIndexRoute: typeof LlmIndexRoute
+  LlmVideoIdModelRoute: typeof LlmVideoIdModelRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
     '/': {
-      id: '/';
-      path: '/';
-      fullPath: '/';
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/llm/': {
-      id: '/llm/';
-      path: '/llm';
-      fullPath: '/llm';
-      preLoaderRoute: typeof LlmIndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/llm/'
+      path: '/llm'
+      fullPath: '/llm'
+      preLoaderRoute: typeof LlmIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/llm/$videoId/$model': {
-      id: '/llm/$videoId/$model';
-      path: '/llm/$videoId/$model';
-      fullPath: '/llm/$videoId/$model';
-      preLoaderRoute: typeof LlmVideoIdModelRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/llm/$videoId/$model'
+      path: '/llm/$videoId/$model'
+      fullPath: '/llm/$videoId/$model'
+      preLoaderRoute: typeof LlmVideoIdModelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,16 +89,16 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LlmIndexRoute: LlmIndexRoute,
   LlmVideoIdModelRoute: LlmVideoIdModelRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from './router.tsx';
-import type { createStart } from '@tanstack/react-start';
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
 declare module '@tanstack/react-start' {
   interface Register {
-    ssr: true;
-    router: Awaited<ReturnType<typeof getRouter>>;
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
   }
 }

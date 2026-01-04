@@ -4,11 +4,10 @@
   "type": "module",
   "scripts": {
     "prepare": "effect-language-service patch",
-    "sync:models": "bun run scripts/sync-models-dev.ts",
-    "dev": "bun run sync:models && vite dev --port 3000",
+    "dev": "vite dev --port 3000",
     "content:build": "content-collections build",
     "content:watch": "content-collections watch",
-    "build": "bun run sync:models && content-collections build && vite build",
+    "build": "content-collections build && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "content-collections build && tsc --noEmit",

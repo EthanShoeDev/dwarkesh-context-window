@@ -10,15 +10,15 @@
  *
  * Commands:
  *   generate <videoId>   - Generate LLM content for a single videoId
- *     --models "claude-sonnet-4-20250514,gpt-4o,zhipu/glm-4-plus"
+ *     --models "claude-sonnet-4-20250514,openrouter/openai/gpt-4o,openrouter/zhipu/glm-4-plus"
  *   generate --all       - Generate LLM content for all videos (skip if exists)
- *     --models "claude-sonnet-4-20250514,gpt-4o,zhipu/glm-4-plus"
+ *     --models "claude-sonnet-4-20250514,openrouter/openai/gpt-4o,openrouter/zhipu/glm-4-plus"
  *   list                 - List tracked videos and whether LLM content exists
  */
 import { BunContext, BunRuntime } from '@effect/platform-bun';
 import { FileSystem, Path, FetchHttpClient } from '@effect/platform';
 import * as Cli from '@effect/cli';
-import { Config, Data, DateTime, Effect, Layer, Option, Schema } from 'effect';
+import { Config, Data, DateTime, Effect, Exit, Layer, Option, Schema } from 'effect';
 import { LanguageModel, Prompt } from '@effect/ai';
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic';
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai';
@@ -41,6 +41,13 @@ class TranscriptNotFoundError extends Data.TaggedError('TranscriptNotFoundError'
 
 class LlmGenerationError extends Data.TaggedError('LlmGenerationError')<{
   readonly videoId: string;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+class BatchGenerationError extends Data.TaggedError('BatchGenerationError')<{
+  readonly videoId: string;
+  readonly model: string;
   readonly message: string;
   readonly cause?: unknown;
 }> {}
@@ -95,6 +102,7 @@ function estimateCostCentsFromModelsDev(options: {
 function getModelsDevModelFrontmatter(options: {
   api: ModelsDevApi;
   modelId: string;
+  preferredProviderId?: string;
 }): ModelsDevModelFrontmatter | null {
   // models.dev api.json is: providerId -> { id, name, models: { modelKey -> modelSpec } }
   const requested = options.modelId;
@@ -123,6 +131,30 @@ function getModelsDevModelFrontmatter(options: {
           open_weights: !!model.open_weights,
         };
       }
+    }
+  }
+
+  // If the caller knows which provider it intends to use, prefer that provider's definition.
+  if (options.preferredProviderId) {
+    const provider = options.api[options.preferredProviderId];
+    const m = provider?.models[requested];
+    if (provider && m) {
+      const fullId = `${options.preferredProviderId}/${requested}`;
+      return {
+        id: fullId,
+        name: m.name,
+        providerId: options.preferredProviderId,
+        providerName: provider.name ?? options.preferredProviderId,
+        attachment: !!m.attachment,
+        reasoning: !!m.reasoning,
+        tool_call: !!m.tool_call,
+        cost: m.cost,
+        limit: m.limit,
+        modalities: m.modalities,
+        release_date: m.release_date,
+        last_updated: m.last_updated,
+        open_weights: !!m.open_weights,
+      };
     }
   }
 
@@ -224,8 +256,18 @@ function classifyModel(model: string): {
   if (model.startsWith('anthropic/')) {
     return { provider: 'anthropic', model: model.slice('anthropic/'.length) };
   }
+  if (model.startsWith('openrouter/')) {
+    return { provider: 'openrouter', model: model.slice('openrouter/'.length) };
+  }
+  if (model.startsWith('openai/')) {
+    return { provider: 'openai', model: model.slice('openai/'.length) };
+  }
   if (model.startsWith('claude-')) {
     return { provider: 'anthropic', model };
+  }
+  // Default GPT-family usage should go through OpenRouter in this project.
+  if (model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3')) {
+    return { provider: 'openrouter', model };
   }
   // Treat provider-qualified IDs (e.g. "zhipu/glm-4-plus", "openai/gpt-4o") as OpenRouter models.
   if (model.includes('/')) {
@@ -234,6 +276,21 @@ function classifyModel(model: string): {
   // Default: OpenAI-compatible model id (e.g. gpt-4o, o1-mini, etc.)
   return { provider: 'openai', model };
 }
+
+function normalizeOpenRouterModelId(model: string) {
+  // Allow user to pass `gpt-4o` and have it resolve to `openai/gpt-4o` on OpenRouter.
+  if (
+    !model.includes('/') &&
+    (model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3'))
+  ) {
+    return `openai/${model}`;
+  }
+  return model;
+}
+
+class BatchGenerationFailuresError extends Data.TaggedError('BatchGenerationFailuresError')<{
+  readonly failures: ReadonlyArray<BatchGenerationError>;
+}> {}
 
 // ============================================================================
 // Services
@@ -444,7 +501,21 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
 
     yield* Effect.log(`Generating LLM guest post for: ${metadata.title}`);
     const modelsDevApi = yield* modelsDev.loadApi({ cacheFile: config.modelsDevCacheFile });
-    const model = getModelsDevModelFrontmatter({ api: modelsDevApi, modelId: options.model });
+    const modelSpec = classifyModel(options.model);
+    const preferredProviderId =
+      modelSpec.provider === 'anthropic'
+        ? 'anthropic'
+        : modelSpec.provider === 'openai'
+          ? 'openai'
+          : modelSpec.provider === 'openrouter'
+            ? 'openrouter'
+            : undefined;
+
+    const model = getModelsDevModelFrontmatter({
+      api: modelsDevApi,
+      modelId: options.model,
+      preferredProviderId,
+    });
     if (!model) {
       yield* Effect.log(
         `models.dev: no metadata found for model "${options.model}" (continuing without pricing/capabilities)`,
@@ -456,7 +527,10 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
     }
 
     const createdAt = yield* Effect.sync(() => new Date().toISOString());
-    const modelSpec = classifyModel(options.model);
+    const providerModelId =
+      modelSpec.provider === 'openrouter'
+        ? normalizeOpenRouterModelId(modelSpec.model)
+        : modelSpec.model;
 
     const generated =
       modelSpec.provider === 'anthropic'
@@ -485,7 +559,7 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
             })
             .pipe(
               Effect.provide(
-                OpenAiLanguageModel.model(modelSpec.model).pipe(
+                OpenAiLanguageModel.model(providerModelId).pipe(
                   Layer.provide(
                     OpenAiClient.layer({
                       apiKey: Option.getOrUndefined(
@@ -545,6 +619,12 @@ const allOption = Cli.Options.boolean('all').pipe(
   Cli.Options.withDefault(false),
 );
 
+const concurrencyOption = Cli.Options.integer('concurrency').pipe(
+  Cli.Options.withAlias('c'),
+  Cli.Options.withDescription('How many generation jobs to run concurrently'),
+  Cli.Options.withDefault(1),
+);
+
 const modelsOption = Cli.Options.text('models').pipe(
   Cli.Options.withDescription('Comma-separated list of model ids to generate (default: LLM_MODEL)'),
   Cli.Options.optional,
@@ -552,8 +632,8 @@ const modelsOption = Cli.Options.text('models').pipe(
 
 const generateCommand = Cli.Command.make(
   'generate',
-  { videoId: videoIdArg, all: allOption, models: modelsOption },
-  ({ videoId, all, models }) =>
+  { videoId: videoIdArg, all: allOption, models: modelsOption, concurrency: concurrencyOption },
+  ({ videoId, all, models, concurrency }) =>
     Effect.gen(function* () {
       const config = yield* appConfig;
       const fileService = yield* FileService;
@@ -562,6 +642,11 @@ const generateCommand = Cli.Command.make(
         config.llmModel,
       );
 
+      const runOne = (id: string, model: string, skipIfExists: boolean) =>
+        Effect.exit(generateForVideoId(id, { skipIfExists, model })).pipe(
+          Effect.map((exit) => ({ id, model, exit }) as const),
+        );
+
       if (all) {
         const ids = yield* fileService.listAllVideoIds();
         if (ids.length === 0) {
@@ -569,27 +654,49 @@ const generateCommand = Cli.Command.make(
           return;
         }
 
-        for (const id of ids) {
-          for (const model of modelList) {
-            yield* generateForVideoId(id, { skipIfExists: true, model }).pipe(
-              Effect.catchAll((err) => {
-                const msg = err instanceof Error ? err.message : JSON.stringify(err);
-                return Effect.log(`Failed for ${id} (${model}): ${msg}`);
-              }),
-            );
+        const jobs = ids.flatMap((id) => modelList.map((model) => runOne(id, model, true)));
+        const results = yield* Effect.all(jobs, { concurrency });
+        const failures = results.flatMap((r) => {
+          if (Exit.isSuccess(r.exit)) return [];
+          const msg = r.exit.cause ? String(r.exit.cause) : 'Unknown error';
+          return [
+            new BatchGenerationError({
+              videoId: r.id,
+              model: r.model,
+              message: msg,
+              cause: r.exit.cause,
+            }),
+          ];
+        });
+        if (failures.length) {
+          for (const f of failures) {
+            yield* Effect.log(`Failed for ${f.videoId} (${f.model}): ${f.message}`);
           }
+          return yield* Effect.fail(new BatchGenerationFailuresError({ failures }));
         }
         return;
       }
 
       if (Option.isSome(videoId)) {
-        for (const model of modelList) {
-          yield* generateForVideoId(videoId.value, { skipIfExists: false, model }).pipe(
-            Effect.catchAll((err) => {
-              const msg = err instanceof Error ? err.message : JSON.stringify(err);
-              return Effect.log(`Failed for ${videoId.value} (${model}): ${msg}`);
+        const jobs = modelList.map((model) => runOne(videoId.value, model, false));
+        const results = yield* Effect.all(jobs, { concurrency });
+        const failures = results.flatMap((r) => {
+          if (Exit.isSuccess(r.exit)) return [];
+          const msg = r.exit.cause ? String(r.exit.cause) : 'Unknown error';
+          return [
+            new BatchGenerationError({
+              videoId: r.id,
+              model: r.model,
+              message: msg,
+              cause: r.exit.cause,
             }),
-          );
+          ];
+        });
+        if (failures.length) {
+          for (const f of failures) {
+            yield* Effect.log(`Failed for ${f.videoId} (${f.model}): ${f.message}`);
+          }
+          return yield* Effect.fail(new BatchGenerationFailuresError({ failures }));
         }
       } else {
         yield* Effect.log('Please provide a videoId or use --all');
