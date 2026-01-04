@@ -1,0 +1,15 @@
+diff --git a/dist/_build/vite.plugin.mjs b/dist/_build/vite.plugin.mjs
+index 692b0229704ff6f5fc116eb236d5e74099349693..e23328a09020fe4c927d3a0a82c83ff9be3cdf67 100644
+--- a/dist/_build/vite.plugin.mjs
++++ b/dist/_build/vite.plugin.mjs
+@@ -579,6 +579,10 @@ function nitroEnv(ctx) {
+ 				debug("[env]  Configuring client environment", name === "client" ? "" : ` (${name})`);
+ 				config.build.emptyOutDir = false;
+ 				config.build.outDir = useNitro(ctx).options.output.publicDir;
++			} else if (config.consumer === "server" && name !== "nitro") {
++				debug("[env]  Configuring server environment", name === "ssr" ? "" : ` (${name})`);
++				config.build.emptyOutDir = false;
++				config.build.outDir = useNitro(ctx).options.output.serverDir;
+ 			} else if (ctx.pluginConfig.experimental?.vite?.virtualBundle && name in (ctx.services || {})) {
+ 				debug("[env]  Configuring service environment for virtual:", name);
+ 				config.build ??= {};
