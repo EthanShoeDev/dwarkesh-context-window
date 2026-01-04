@@ -27,27 +27,45 @@ export const CommandUtils = {
       return (cmd: Command.Command) =>
         cmd.pipe(Command.workingDirectory(absoluteCwd), Command.env({ PWD: absoluteCwd }));
     }),
-  bufferStringStream: <E, R>(
+  bufferStringStream: <E, R, TapE = never, TapR = never>(
     stream: Stream.Stream<Uint8Array, E, R>,
-  ): Effect.Effect<string, E, R> =>
-    stream.pipe(Stream.decodeText(), Stream.runFold(String.empty, String.concat)),
-  runCommandBuffered: (command: Command.Command) =>
-    pipe(
-      Command.start(command),
-      Effect.flatMap((process) =>
-        Effect.all(
-          [
-            process.exitCode,
-            CommandUtils.bufferStringStream(process.stdout),
-            CommandUtils.bufferStringStream(process.stderr),
-          ],
-          { concurrency: 3 },
+    tap?: (value: string) => Effect.Effect<void, TapE, TapR>,
+  ): Effect.Effect<string, E | TapE, R | TapR> =>
+    stream.pipe(
+      Stream.decodeText(),
+      Stream.tap(tap ?? Effect.succeed),
+      Stream.runFold(String.empty, String.concat),
+    ),
+  runCommandBuffered:
+    <E, R, E2, R2>(options?: {
+      stdoutTap?: (value: string) => Effect.Effect<void, E2, R2>;
+      stderrTap?: (value: string) => Effect.Effect<void, E, R>;
+    }) =>
+    (command: Command.Command) =>
+      pipe(
+        Command.start(command),
+        Effect.flatMap((process) =>
+          Effect.all(
+            [
+              process.exitCode,
+              CommandUtils.bufferStringStream(process.stdout, options?.stdoutTap),
+              CommandUtils.bufferStringStream(process.stderr, options?.stderrTap),
+            ],
+            { concurrency: 3 },
+          ),
         ),
+        Effect.map(([exitCode, stdout, stderr]) => ({
+          exitCode,
+          stdout,
+          stderr,
+        })),
       ),
-      Effect.map(([exitCode, stdout, stderr]) => ({
-        exitCode,
-        stdout,
-        stderr,
-      })),
+  runCommandBufferedWithLog: (command: Command.Command) =>
+    CommandUtils.withLog(
+      command,
+      CommandUtils.runCommandBuffered({
+        stdoutTap: (value) => Effect.logDebug(`stdout: ${value}`),
+        stderrTap: (value) => Effect.logError(`stderr: ${value}`),
+      }),
     ),
 };

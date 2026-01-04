@@ -7,23 +7,23 @@ import { Schema } from 'effect';
  * This serves as the "registry" of processed podcasts and contains
  * all metadata that can be publicly shared (no transcript content).
  */
-export const PodcastMetadataSchema = Schema.Struct({
-  schemaVersion: Schema.Literal('1.0.0'),
+// export const PodcastMetadataSchema = Schema.Struct({
+export class PodcastMetadataSchema extends Schema.Class<PodcastMetadataSchema>(
+  'PodcastMetadataSchema',
+)({
+  schemaVersion: Schema.Literal('0.0.1'),
 
   // Identifiers
-  videoId: Schema.String,
-  url: Schema.String,
+  youtubeVideoId: Schema.String,
 
-  // Timestamps for tracking
-  metadataCreatedAt: Schema.String, // ISO timestamp - when first added
-  metadataLastSyncedAt: Schema.String, // ISO timestamp - when metadata was last updated from YouTube
-  transcriptCreatedAt: Schema.NullOr(Schema.String), // ISO timestamp - when transcript was created (null if not yet)
+  // Timestamps
+  metadataCreatedAt: Schema.DateTimeUtc,
+  metadataLastSyncedAt: Schema.DateTimeUtc,
 
-  // Video info
   title: Schema.String,
   description: Schema.NullOr(Schema.String),
-  uploadDate: Schema.NullOr(Schema.String), // YYYY-MM-DD format
-  duration: Schema.Number, // seconds
+  uploadedAt: Schema.NullOr(Schema.DateTimeUtc),
+  duration: Schema.Duration,
 
   // Engagement stats (can be updated frequently via update-metadata command)
   viewCount: Schema.NullOr(Schema.Number),
@@ -41,16 +41,8 @@ export const PodcastMetadataSchema = Schema.Struct({
   categories: Schema.Array(Schema.String),
   tags: Schema.Array(Schema.String),
   availability: Schema.NullOr(Schema.String),
-});
-
-export type PodcastMetadata = typeof PodcastMetadataSchema.Type;
-
-/**
- * Encode a PodcastMetadata object to JSON-compatible format
- */
-export const encodePodcastMetadata = Schema.encodeSync(PodcastMetadataSchema);
-
-/**
- * Decode and validate a PodcastMetadata object from unknown input
- */
-export const decodePodcastMetadata = Schema.decodeUnknownSync(PodcastMetadataSchema);
+}) {
+  get youtubeUrl() {
+    return `https://www.youtube.com/watch?v=${this.youtubeVideoId}`;
+  }
+}

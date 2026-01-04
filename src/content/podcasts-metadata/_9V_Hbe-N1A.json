@@ -17,9 +17,7 @@
   "channelUrl": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA",
   "channelFollowerCount": 1150000,
   "thumbnail": "https://i.ytimg.com/vi_webp/_9V_Hbe-N1A/maxresdefault.webp",
-  "categories": [
-    "Science & Technology"
-  ],
+  "categories": ["Science & Technology"],
   "tags": [],
   "availability": "public"
 }
