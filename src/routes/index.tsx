@@ -39,7 +39,7 @@ function HomePage() {
     <div className='space-y-10'>
       <header className='space-y-3'>
         <h1 className='text-3xl font-semibold tracking-tight'>Dwarkesh Context Window</h1>
-        <div className='space-y-3 text-sm text-muted-foreground leading-relaxed'>
+        <div className='space-y-3 text-base text-muted-foreground leading-relaxed'>
           <p>
             This project takes a full transcript from a Dwarkesh Patel podcast episode and prompts a
             frontier LLM to act as a <strong>third guest</strong>: summarizing, questioning, and
@@ -55,7 +55,13 @@ function HomePage() {
             Over time, the site can serve as a historical record of how well different models “think
             along” with top researchers, and maybe even evolve into a lightweight benchmark.
           </p>
-          <p className='text-xs'>I am not affiliated with Dwarkesh Patel in any way.</p>
+          <p>
+            Inspiration: Theo.gg’s “Skatebench” benchmark (naming skateboarding tricks from English
+            descriptions). It’s a great reminder that weird, random benchmarks can be insightful:
+            early on some Chinese models lagged behind American models, and later on some models
+            regressed on Skatebench while improving on other benchmarks.
+          </p>
+          <p className='text-sm'>I am not affiliated with Dwarkesh Patel in any way.</p>
         </div>
 
         <div className='flex flex-wrap items-center gap-2 pt-2'>
@@ -76,12 +82,12 @@ function HomePage() {
       <section className='space-y-4'>
         <div className='flex items-center justify-between gap-4'>
           <h2 className='text-lg font-semibold tracking-tight'>Recent posts</h2>
-          <Link to='/llm' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <Link to='/llm' className={buttonVariants({ variant: 'ghost', size: 'default' })}>
             View all
           </Link>
         </div>
         {posts.length === 0 ? (
-          <p className='text-sm text-muted-foreground'>
+          <p className='text-base text-muted-foreground'>
             No generated posts yet. Run the LLM generation script to create one.
           </p>
         ) : (
@@ -96,7 +102,7 @@ function HomePage() {
                   <div className='font-medium leading-snug group-hover:underline group-hover:underline-offset-4'>
                     {videoTitle}
                   </div>
-                  <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground'>
+                  <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground'>
                     <span>Model: {post.llmModel}</span>
                     {post.createdAt ? (
                       <span>{new Date(post.createdAt).toLocaleString()}</span>

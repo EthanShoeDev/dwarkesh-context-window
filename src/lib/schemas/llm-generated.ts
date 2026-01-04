@@ -19,6 +19,7 @@ export const LlmGeneratedFrontmatterSchema = Schema.Struct({
   totalTokens: Schema.Number,
 
   estimatedCostCents: Schema.Number,
+  systemPromptRevision: Schema.optional(Schema.Number),
   systemPrompt: Schema.optional(Schema.String),
 
   // NOTE: This is the markdown body (no frontmatter)

@@ -1,7 +1,11 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+
+/* Avoid scanning huge docs trees for class candidates. */
+@source not "../docs";
 
 :root {
   --background: oklch(1 0 0);
@@ -118,6 +122,6 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-[17px] leading-relaxed;
   }
 }

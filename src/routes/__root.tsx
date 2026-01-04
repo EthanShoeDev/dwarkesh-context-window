@@ -37,21 +37,21 @@ function Header() {
     <header className='border-b bg-background/80 backdrop-blur supports-backdrop-filter:bg-background/60'>
       <div className='max-w-5xl mx-auto flex items-center justify-between gap-6 px-6 py-5'>
         <div className='flex items-center gap-3'>
-          <Link to='/' className='font-semibold tracking-tight'>
+          <Link to='/' className='font-semibold tracking-tight text-base sm:text-lg'>
             Dwarkesh Context Window
           </Link>
-          <nav className='flex items-center gap-1 text-sm text-muted-foreground'>
-            <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <nav className='flex items-center gap-1 text-base text-muted-foreground'>
+            <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'default' })}>
               Home
             </Link>
-            <Link to='/llm' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+            <Link to='/llm' className={buttonVariants({ variant: 'ghost', size: 'default' })}>
               Posts
             </Link>
             <a
               href='https://github.com/EthanShoeDev/dwarkesh-context-window'
               target='_blank'
               rel='noreferrer'
-              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+              className={buttonVariants({ variant: 'ghost', size: 'default' })}
             >
               GitHub
             </a>
@@ -89,7 +89,7 @@ function Footer() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang='en'>
+    <html lang='en' suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

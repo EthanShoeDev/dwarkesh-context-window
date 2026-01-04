@@ -41,11 +41,11 @@ function LlmIndex() {
       <header className='space-y-2'>
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <h1 className='text-3xl font-semibold tracking-tight'>AI Guest Posts</h1>
-          <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'default' })}>
             Back home
           </Link>
         </div>
-        <p className='text-sm text-muted-foreground'>
+        <p className='text-base text-muted-foreground'>
           LLM-generated “third guest” expansions of Dwarkesh podcast transcripts.
         </p>
       </header>
@@ -61,8 +61,8 @@ function LlmIndex() {
               <h2 className='font-medium leading-snug group-hover:underline group-hover:underline-offset-4'>
                 {post.videoTitle}
               </h2>
-              <p className='mt-1 text-xs text-muted-foreground'>Model: {post.llmModel}</p>
-              <p className='mt-1 text-xs text-muted-foreground'>
+              <p className='mt-1 text-sm text-muted-foreground'>Model: {post.llmModel}</p>
+              <p className='mt-1 text-sm text-muted-foreground'>
                 {new Date(post.createdAt).toLocaleString()}
               </p>
             </Link>

@@ -15,6 +15,15 @@ and open questions—acts like a surprisingly strong “test harness” for that
 Over time, this site can serve as a historical record of how well different models “think along”
 with top researchers, and potentially evolve into a lightweight benchmark.
 
+## Inspiration: Theo.gg’s Skatebench
+
+This project is inspired by Theo.gg’s “Skatebench” benchmark: an LLM benchmark where the task is to
+name a skateboarding trick from an English description. It sounds silly at first, but it produced
+surprisingly interesting results—early on, some Chinese models lagged behind American models, and
+later on, some models even regressed on Skatebench while improving on other benchmarks. The key
+takeaway is that weird, random benchmarks can be genuinely insightful, especially when you track
+them over time.
+
 ## What’s here today
 
 - A small, static “blog-ish” site rendering LLM-generated markdown posts

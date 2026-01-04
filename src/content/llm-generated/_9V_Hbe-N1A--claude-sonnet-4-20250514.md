@@ -8,6 +8,7 @@ inputTokens: 26054
 outputTokens: 1406
 totalTokens: 27460
 estimatedCostCents: 0
+systemPromptRevision: 1
 ---
 
 # The Missing Piece: Why the Brain's "Python Code" Might Be More Like a Compiler

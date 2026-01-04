@@ -24,7 +24,7 @@ const initialState: ThemeProviderState = {
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 const getStoredTheme = createIsomorphicFn()
-  .server((storageKey: string, defaultTheme: Theme): Theme => defaultTheme)
+  .server((_storageKey: string, defaultTheme: Theme): Theme => defaultTheme)
   .client((storageKey: string, defaultTheme: Theme): Theme => {
     try {
       const storedTheme = localStorage.getItem(storageKey) as Theme | null;
