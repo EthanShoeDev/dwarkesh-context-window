@@ -49,6 +49,11 @@ class FfmpegError extends Data.TaggedError('FfmpegError')<{
   readonly cause?: unknown;
 }> {}
 
+class ValidationError extends Data.TaggedError('ValidationError')<{
+  readonly message: string;
+  readonly invalidCount: number;
+}> {}
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -386,10 +391,6 @@ class FfmpegService extends Effect.Service<FfmpegService>()('app/FfmpegService',
             );
 
             const cmdParts = [
-              'nix',
-              'shell',
-              'nixpkgs#ffmpeg',
-              '--command',
               'ffmpeg',
               '-y',
               '-i',
@@ -425,16 +426,7 @@ class FfmpegService extends Effect.Service<FfmpegService>()('app/FfmpegService',
     };
   }),
   dependencies: [],
-}) {
-  static readonly FfmpegFileInfoSchema = Schema.Struct({
-    fileSizeBytes: Schema.Number,
-    fileSizeMB: Schema.Number,
-    durationSeconds: Schema.Number,
-    duration: Schema.Duration,
-    formattedDuration: Schema.String,
-    formattedSize: Schema.String,
-  });
-}
+}) {}
 
 class BucketStorageService extends Effect.Service<BucketStorageService>()(
   'app/BucketStorageService',
@@ -705,7 +697,7 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
 
     if (metadataExists && options.skipIfExists) {
       yield* Effect.log(`Video ${videoMeta.id} already exists, skipping`);
-      return { skipped: true, videoMeta };
+      return { skipped: true, videoId: videoMeta.id };
     }
 
     const audioPath = yield* ytDlpService.downloadAudioFromYoutube(url, videoMeta.id);
@@ -802,17 +794,6 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
     };
 
     yield* fileService.writeTranscript(transcript);
-
-    // // 8. Clean up local audio files
-    // yield* Effect.log('Cleaning up local audio files...');
-    // yield* fs.remove(audioPath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    // yield* fs.remove(preprocessedPath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-
-    // for (const chunk of chunks) {
-    //   if (chunk.filePath !== preprocessedPath) {
-    //     yield* fs.remove(chunk.filePath).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    //   }
-    // }
 
     yield* Effect.log(`Transcript pipeline completed for: ${videoMeta.id}`);
 
@@ -1060,31 +1041,29 @@ const rebuildCommand = Cli.Command.make(
   ),
 );
 
-// Validation commands
-const validateMetadataCommand = Cli.Command.make('validate-metadata', {}, () =>
-  Effect.gen(function* () {
-    const config = yield* appConfig;
+// Validation helper
+function validateJsonFiles<A, I>(dir: string, schema: Schema.Schema<A, I>, typeName: string) {
+  return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const files = yield* fs.readDirectory(config.podcastsMetadataDir);
+    const files = yield* fs.readDirectory(dir);
     const jsonFiles = files.filter((f) => f.endsWith('.json'));
 
     if (jsonFiles.length === 0) {
-      yield* Effect.log('No metadata files to validate');
+      yield* Effect.log(`No ${typeName} files to validate`);
       return;
     }
 
-    yield* Effect.log(`Validating ${jsonFiles.length} metadata file(s)...`);
+    yield* Effect.log(`Validating ${jsonFiles.length} ${typeName} file(s)...`);
 
     let validCount = 0;
     let invalidCount = 0;
 
     for (const file of jsonFiles) {
-      const filePath = path.join(config.podcastsMetadataDir, file);
+      const filePath = path.join(dir, file);
       const content = yield* fs.readFileString(filePath);
       const rawJson = yield* Effect.sync(() => JSON.parse(content));
-      const validation = Schema.decodeUnknown(PodcastMetadataSchema)(rawJson);
-      const decoded = yield* Effect.either(validation);
+      const decoded = yield* Effect.either(Schema.decodeUnknown(schema)(rawJson));
 
       if (decoded._tag === 'Right') {
         validCount++;
@@ -1096,51 +1075,59 @@ const validateMetadataCommand = Cli.Command.make('validate-metadata', {}, () =>
     }
 
     yield* Effect.log(`Validation complete: ${validCount} valid, ${invalidCount} invalid`);
-  }).pipe(Effect.orDie),
+
+    if (invalidCount > 0) {
+      return yield* Effect.fail(
+        new ValidationError({
+          message: `${invalidCount} invalid ${typeName} file(s)`,
+          invalidCount,
+        }),
+      );
+    }
+  });
+}
+
+const validateMetadataCommand = Cli.Command.make('validate-metadata', {}, () =>
+  Effect.gen(function* () {
+    const config = yield* appConfig;
+    yield* validateJsonFiles(config.podcastsMetadataDir, PodcastMetadataSchema, 'metadata');
+  }),
 ).pipe(Cli.Command.withDescription('Validate all metadata files against schema'));
 
 const validateTranscriptsCommand = Cli.Command.make('validate-transcripts', {}, () =>
   Effect.gen(function* () {
     const config = yield* appConfig;
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const files = yield* fs.readDirectory(config.transcriptsDir);
-    const jsonFiles = files.filter((f) => f.endsWith('.json'));
+    yield* validateJsonFiles(config.transcriptsDir, TranscriptSchema, 'transcript');
+  }),
+).pipe(Cli.Command.withDescription('Validate all transcript files against schema'));
 
-    if (jsonFiles.length === 0) {
-      yield* Effect.log('No transcript files to validate');
+// List command
+const listCommand = Cli.Command.make('list', {}, () =>
+  Effect.gen(function* () {
+    const fileService = yield* FileService;
+    const videoIds = yield* fileService.listAllVideoIds();
+
+    if (videoIds.length === 0) {
+      yield* Effect.log('No videos found');
       return;
     }
 
-    yield* Effect.log(`Validating ${jsonFiles.length} transcript file(s)...`);
+    yield* Effect.log(`Found ${videoIds.length} video(s):\n`);
 
-    let validCount = 0;
-    let invalidCount = 0;
-
-    for (const file of jsonFiles) {
-      const filePath = path.join(config.transcriptsDir, file);
-      const content = yield* fs.readFileString(filePath);
-      const rawJson = yield* Effect.sync(() => JSON.parse(content));
-      const validation = Schema.decodeUnknown(TranscriptSchema)(rawJson);
-      const decoded = yield* Effect.either(validation);
-
-      if (decoded._tag === 'Right') {
-        validCount++;
-        yield* Effect.logDebug(`✓ ${file} - Valid`);
-      } else {
-        invalidCount++;
-        yield* Effect.log(`✗ ${file} - ${decoded.left.message ?? JSON.stringify(decoded.left)}`);
-      }
+    for (const videoId of videoIds) {
+      const metadata = yield* fileService.readPodcastMetadata(videoId);
+      const hasTranscript = yield* fileService.checkTranscriptExists(videoId);
+      const transcriptStatus = hasTranscript ? '✓' : '✗';
+      yield* Effect.log(`  ${transcriptStatus} ${videoId} - ${metadata.title}`);
     }
-
-    yield* Effect.log(`Validation complete: ${validCount} valid, ${invalidCount} invalid`);
   }).pipe(Effect.orDie),
-).pipe(Cli.Command.withDescription('Validate all transcript files against schema'));
+).pipe(Cli.Command.withDescription('List all tracked videos'));
 
 // Root command with subcommands
 const rootCommand = Cli.Command.make('yt-transcript', {}).pipe(
   Cli.Command.withSubcommands([
     addCommand,
+    listCommand,
     updateMetadataCommand,
     reprocessTranscriptCommand,
     rebuildCommand,
