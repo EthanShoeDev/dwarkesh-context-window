@@ -2,6 +2,11 @@ import { Link, createFileRoute } from '@tanstack/react-router';
 import { allLlmPosts } from 'content-collections';
 
 import { buttonVariants } from '@/components/ui/button';
+import { pickDefaultModel } from '@/lib/model-priority';
+
+function encodeModelParam(model: string) {
+  return encodeURIComponent(model);
+}
 
 function loadPodcastMetadataMap() {
   const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
@@ -19,21 +24,51 @@ function loadPodcastMetadataMap() {
 export const Route = createFileRoute('/')({
   loader: () => {
     const meta = loadPodcastMetadataMap();
-    const posts = allLlmPosts
-      .slice()
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .slice(0, 5)
-      .map((post) => ({
-        post,
-        videoTitle: meta.get(post.youtubeVideoId)?.title ?? post.youtubeVideoId,
-      }));
-    return { posts };
+    const groups = new Map<
+      string,
+      {
+        youtubeVideoId: string;
+        videoTitle: string;
+        models: string[];
+        latestCreatedAt: string;
+        defaultModel: string;
+      }
+    >();
+
+    for (const post of allLlmPosts) {
+      const g = groups.get(post.youtubeVideoId);
+      const createdAt = post.createdAt;
+      const videoTitle = meta.get(post.youtubeVideoId)?.title ?? post.youtubeVideoId;
+      if (!g) {
+        groups.set(post.youtubeVideoId, {
+          youtubeVideoId: post.youtubeVideoId,
+          videoTitle,
+          models: [post.llmModel],
+          latestCreatedAt: createdAt,
+          defaultModel: post.llmModel,
+        });
+      } else {
+        if (!g.models.includes(post.llmModel)) g.models.push(post.llmModel);
+        if (Date.parse(createdAt) > Date.parse(g.latestCreatedAt)) g.latestCreatedAt = createdAt;
+      }
+    }
+
+    for (const g of groups.values()) {
+      const chosen = pickDefaultModel(g.models);
+      g.defaultModel = chosen ?? g.models[0]!;
+    }
+
+    const podcasts = Array.from(groups.values())
+      .sort((a, b) => Date.parse(b.latestCreatedAt) - Date.parse(a.latestCreatedAt))
+      .slice(0, 5);
+
+    return { podcasts };
   },
   component: HomePage,
 });
 
 function HomePage() {
-  const { posts } = Route.useLoaderData();
+  const { podcasts } = Route.useLoaderData();
 
   return (
     <div className='space-y-10'>
@@ -86,27 +121,31 @@ function HomePage() {
             View all
           </Link>
         </div>
-        {posts.length === 0 ? (
+        {podcasts.length === 0 ? (
           <p className='text-base text-muted-foreground'>
             No generated posts yet. Run the LLM generation script to create one.
           </p>
         ) : (
           <ul className='grid gap-3 sm:grid-cols-2'>
-            {posts.map(({ post, videoTitle }) => (
-              <li key={`${post.youtubeVideoId}--${post.llmModel}`}>
+            {podcasts.map((podcast) => (
+              <li key={podcast.youtubeVideoId}>
                 <Link
                   to='/llm/$videoId/$model'
-                  params={{ videoId: post.youtubeVideoId, model: post.llmModel }}
+                  params={{
+                    videoId: podcast.youtubeVideoId,
+                    model: encodeModelParam(podcast.defaultModel),
+                  }}
                   className='group block rounded-xl border bg-card p-4 text-card-foreground shadow-sm transition-colors hover:bg-muted/50'
                 >
                   <div className='font-medium leading-snug group-hover:underline group-hover:underline-offset-4'>
-                    {videoTitle}
+                    {podcast.videoTitle}
                   </div>
                   <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground'>
-                    <span>Model: {post.llmModel}</span>
-                    {post.createdAt ? (
-                      <span>{new Date(post.createdAt).toLocaleString()}</span>
-                    ) : null}
+                    <span>
+                      {podcast.models.length.toLocaleString()} model
+                      {podcast.models.length === 1 ? '' : 's'}
+                    </span>
+                    <span>{new Date(podcast.latestCreatedAt).toLocaleString()}</span>
                   </div>
                 </Link>
               </li>

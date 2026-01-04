@@ -2,6 +2,11 @@ import { Link, createFileRoute } from '@tanstack/react-router';
 import { allLlmPosts } from 'content-collections';
 
 import { buttonVariants } from '@/components/ui/button';
+import { pickDefaultModel } from '@/lib/model-priority';
+
+function encodeModelParam(model: string) {
+  return encodeURIComponent(model);
+}
 
 function loadPodcastMetadataMap() {
   const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
@@ -19,23 +24,49 @@ function loadPodcastMetadataMap() {
 export const Route = createFileRoute('/llm/')({
   loader: () => {
     const meta = loadPodcastMetadataMap();
-    const posts = allLlmPosts
-      .slice()
-      .map((p) => ({
-        ...p,
-        videoTitle: meta.get(p.youtubeVideoId)?.title ?? p.youtubeVideoId,
-      }))
-      .sort((a, b) => {
-        return Date.parse(b.createdAt) - Date.parse(a.createdAt);
-      });
+    const groups = new Map<
+      string,
+      {
+        youtubeVideoId: string;
+        videoTitle: string;
+        models: string[];
+        latestCreatedAt: string;
+        defaultModel: string;
+      }
+    >();
 
-    return posts;
+    for (const post of allLlmPosts) {
+      const g = groups.get(post.youtubeVideoId);
+      const createdAt = post.createdAt;
+      const videoTitle = meta.get(post.youtubeVideoId)?.title ?? post.youtubeVideoId;
+      if (!g) {
+        groups.set(post.youtubeVideoId, {
+          youtubeVideoId: post.youtubeVideoId,
+          videoTitle,
+          models: [post.llmModel],
+          latestCreatedAt: createdAt,
+          defaultModel: post.llmModel,
+        });
+      } else {
+        if (!g.models.includes(post.llmModel)) g.models.push(post.llmModel);
+        if (Date.parse(createdAt) > Date.parse(g.latestCreatedAt)) g.latestCreatedAt = createdAt;
+      }
+    }
+
+    for (const g of groups.values()) {
+      const chosen = pickDefaultModel(g.models);
+      g.defaultModel = chosen ?? g.models[0]!;
+    }
+
+    return Array.from(groups.values()).sort(
+      (a, b) => Date.parse(b.latestCreatedAt) - Date.parse(a.latestCreatedAt),
+    );
   },
   component: LlmIndex,
 });
 
 function LlmIndex() {
-  const posts = Route.useLoaderData();
+  const podcasts = Route.useLoaderData();
   return (
     <div className='space-y-6'>
       <header className='space-y-2'>
@@ -51,19 +82,25 @@ function LlmIndex() {
       </header>
 
       <ul className='grid gap-3 sm:grid-cols-2'>
-        {posts.map((post) => (
-          <li key={`${post.youtubeVideoId}--${post.llmModel}`}>
+        {podcasts.map((podcast) => (
+          <li key={podcast.youtubeVideoId}>
             <Link
               to='/llm/$videoId/$model'
-              params={{ videoId: post.youtubeVideoId, model: post.llmModel }}
+              params={{
+                videoId: podcast.youtubeVideoId,
+                model: encodeModelParam(podcast.defaultModel),
+              }}
               className='group block rounded-xl border bg-card p-4 text-card-foreground shadow-sm transition-colors hover:bg-muted/50'
             >
               <h2 className='font-medium leading-snug group-hover:underline group-hover:underline-offset-4'>
-                {post.videoTitle}
+                {podcast.videoTitle}
               </h2>
-              <p className='mt-1 text-sm text-muted-foreground'>Model: {post.llmModel}</p>
               <p className='mt-1 text-sm text-muted-foreground'>
-                {new Date(post.createdAt).toLocaleString()}
+                {podcast.models.length.toLocaleString()} model
+                {podcast.models.length === 1 ? '' : 's'}
+              </p>
+              <p className='mt-1 text-sm text-muted-foreground'>
+                Latest: {new Date(podcast.latestCreatedAt).toLocaleString()}
               </p>
             </Link>
           </li>

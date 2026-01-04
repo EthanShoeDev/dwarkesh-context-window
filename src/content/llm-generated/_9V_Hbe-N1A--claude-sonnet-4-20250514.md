@@ -4,6 +4,7 @@ youtubeVideoId: _9V_Hbe-N1A
 llmModel: claude-sonnet-4-20250514
 createdAt: '2026-01-04T04:50:36.399Z'
 responseTimeMs: 39049
+transcriptWordCount: 21061
 inputTokens: 26054
 outputTokens: 1406
 totalTokens: 27460

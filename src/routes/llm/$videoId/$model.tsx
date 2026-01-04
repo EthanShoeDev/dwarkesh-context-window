@@ -1,4 +1,4 @@
-import { createFileRoute, notFound } from '@tanstack/react-router';
+import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router';
 import { allLlmPosts } from 'content-collections';
 import * as React from 'react';
 
@@ -7,6 +7,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getSystemPromptByRevision } from '@/llm-prompts';
 import { Button } from '@/components/ui/button';
 import { buttonVariants } from '@/components/ui/button';
+import { sortModelsByPriority } from '@/lib/model-priority';
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function encodeModelParam(model: string) {
+  // Make OpenRouter-style model IDs (provider/model) safe as a single path segment.
+  return encodeURIComponent(model);
+}
 
 async function loadPodcastMetadata(videoId: string) {
   const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
@@ -43,12 +57,23 @@ function extractLeadingH1(markdown: string): { title: string | null; body: strin
 
 export const Route = createFileRoute('/llm/$videoId/$model')({
   loader: async ({ params }) => {
-    const post = allLlmPosts.find((p) => p.slug === `${params.videoId}--${params.model}`);
+    const requestedModel = safeDecodeURIComponent(params.model);
+    const post = allLlmPosts.find(
+      (p) => p.youtubeVideoId === params.videoId && p.llmModel === requestedModel,
+    );
     if (!post) throw notFound();
     const meta = await loadPodcastMetadata(params.videoId);
+    const availableModels = sortModelsByPriority(
+      Array.from(
+        new Set(
+          allLlmPosts.filter((p) => p.youtubeVideoId === params.videoId).map((p) => p.llmModel),
+        ),
+      ),
+    );
     return {
       post,
       videoTitle: typeof meta?.title === 'string' ? meta.title : params.videoId,
+      availableModels,
     };
   },
   head: ({ params, loaderData }) => {
@@ -70,12 +95,14 @@ export const Route = createFileRoute('/llm/$videoId/$model')({
 });
 
 function LlmContentPage() {
-  const { post, videoTitle } = Route.useLoaderData();
+  const { post, videoTitle, availableModels } = Route.useLoaderData();
+  const navigate = useNavigate();
   const resolvedSystemPrompt =
     post.systemPrompt ??
     getSystemPromptByRevision((post as { systemPromptRevision?: number }).systemPromptRevision);
 
   const systemPromptRevision = (post as { systemPromptRevision?: number }).systemPromptRevision;
+  const transcriptWordCount = (post as { transcriptWordCount?: number }).transcriptWordCount;
   const { title: llmPostTitle, body: llmPostBody } = extractLeadingH1(post.content);
 
   const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'error'>('idle');
@@ -100,11 +127,36 @@ function LlmContentPage() {
             </h1>
             <div className='flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground'>
               <span>
-                Model: <span className='text-foreground'>{post.llmModel}</span>
+                Model:{' '}
+                <select
+                  className='ml-1 inline-flex h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground disabled:opacity-60'
+                  value={post.llmModel}
+                  disabled={availableModels.length <= 1}
+                  onChange={(e) => {
+                    void navigate({
+                      to: '/llm/$videoId/$model',
+                      params: {
+                        videoId: post.youtubeVideoId,
+                        model: encodeModelParam(e.target.value),
+                      },
+                    });
+                  }}
+                >
+                  {(availableModels.length ? availableModels : [post.llmModel]).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
               </span>
               <span className='tabular-nums'>
                 Generated: {new Date(post.createdAt).toLocaleString()}
               </span>
+              {typeof transcriptWordCount === 'number' ? (
+                <span className='tabular-nums'>
+                  Transcript: {transcriptWordCount.toLocaleString()} words
+                </span>
+              ) : null}
               <span className='tabular-nums'>
                 Response: {(post.responseTimeMs / 1000).toFixed(1)}s
               </span>

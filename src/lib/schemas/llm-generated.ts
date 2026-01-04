@@ -12,6 +12,7 @@ export const LlmGeneratedFrontmatterSchema = Schema.Struct({
   llmModel: Schema.String,
   createdAt: Schema.String, // ISO string
   responseTimeMs: Schema.Number,
+  transcriptWordCount: Schema.optional(Schema.Number),
 
   inputTokens: Schema.Number,
   outputTokens: Schema.Number,
