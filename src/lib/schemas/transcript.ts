@@ -48,7 +48,7 @@ export const TranscriptSchema = Schema.Struct({
   schemaVersion: Schema.Literal('0.0.1'),
 
   youtubeVideoId: Schema.String,
-
+  estimatedCostCents: Schema.Number,
   createdAt: Schema.DateTimeUtc,
 
   audioMetadata: AudioMetadataSchema,

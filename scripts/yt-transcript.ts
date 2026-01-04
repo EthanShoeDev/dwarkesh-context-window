@@ -10,7 +10,7 @@
  *   reprocess-transcript --all     - Reprocess all videos
  *   rebuild [--video-id <id>]      - Rebuild transcripts from metadata (for self-hosting)
  *
- * Run with: infisical run -- ./scripts/get-transcript.ts <command> [options]
+ * Run with: infisical run -- ./scripts/yt-transcript.ts <command> [options]
  *
  * Optional chunking config (both can be set, audio splits to satisfy both):
  *   MAX_CHUNK_SIZE_MB=24             # Split if file exceeds this size (Groq limit: 25MB)
@@ -53,6 +53,17 @@ class FfmpegError extends Data.TaggedError('FfmpegError')<{
 // Configuration
 // ============================================================================
 
+const GroqTranscriptionModels = {
+  'whisper-large-v3': { ratePerHourCents: 11.1 },
+  'whisper-large-v3-turbo': { ratePerHourCents: 4.0 },
+} as const;
+
+type GroqTranscriptionModel = keyof typeof GroqTranscriptionModels;
+const groqTranscriptionModelNames = Object.keys(GroqTranscriptionModels) as [
+  GroqTranscriptionModel,
+  ...GroqTranscriptionModel[],
+];
+
 const appConfig = Config.all({
   groqApiKey: Config.redacted('GROQ_API_KEY'),
   s3AccessKey: Config.redacted('S3_ACCESS_KEY'),
@@ -75,6 +86,9 @@ const appConfig = Config.all({
   maxChunkSizeMB: Config.number('MAX_CHUNK_SIZE_MB').pipe(Config.option),
   maxChunkDurationSeconds: Config.number('MAX_CHUNK_DURATION_SECONDS').pipe(Config.option),
   chunkOverlapSeconds: Config.number('CHUNK_OVERLAP_SECONDS').pipe(Config.withDefault(5)),
+  transcriptionModel: Config.literal(...groqTranscriptionModelNames)('TRANSCRIPTION_MODEL').pipe(
+    Config.withDefault('whisper-large-v3' satisfies GroqTranscriptionModel),
+  ),
 });
 
 const logFmt = {
@@ -271,11 +285,9 @@ class FfmpegService extends Effect.Service<FfmpegService>()('app/FfmpegService',
           yield* Effect.log(`Audio preprocessing completed: ${preprocessedPath}`);
           return preprocessedPath;
         }),
-      splitAudio: (
-        filePath: string,
-        fileInfo: Effect.Effect.Success<ReturnType<typeof getAudioFileInfo>>,
-      ) =>
+      splitAudio: (filePath: string) =>
         Effect.gen(function* () {
+          const fileInfo = yield* getAudioFileInfo(filePath);
           let chunksForSize = 1;
           let chunksForDuration = 1;
 
@@ -549,7 +561,7 @@ class TranscriptionService extends Effect.Service<TranscriptionService>()(
               try: () =>
                 groq.audio.transcriptions.create({
                   url: options.audioUrl,
-                  model: 'whisper-large-v3-turbo',
+                  model: config.transcriptionModel,
                   language: options.language ?? 'en',
                   response_format: 'verbose_json',
                 }),
@@ -605,12 +617,7 @@ class TranscriptionService extends Effect.Service<TranscriptionService>()(
     }),
     dependencies: [],
   },
-) {
-  static readonly groqRatesPerHour = {
-    'whisper-large-v3': 0.111,
-    'whisper-large-v3-turbo': 0.04,
-  } as const;
-}
+) {}
 
 class FileService extends Effect.Service<FileService>()('app/FileService', {
   effect: Effect.gen(function* () {
@@ -710,7 +717,7 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
     yield* Effect.log(`Audio file size: ${logFmt.bytesSize(preprocessedInfo.fileStat.size)}`);
     yield* Effect.log(`Audio duration: ${logFmt.duration(preprocessedInfo.duration)}`);
 
-    const chunks = yield* ffmpegService.splitAudio(preprocessedPath, originalFileInfo);
+    const chunks = yield* ffmpegService.splitAudio(preprocessedPath);
 
     yield* Effect.log(`Uploading ${chunks.length} chunk(s) to S3...`);
     const chunkUrls = yield* Effect.all(
@@ -741,6 +748,7 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
     yield* Effect.log(`All ${chunkResults.length} chunks transcribed, merging...`);
     const mergedText = transcriptionService.mergeTranscripts(chunkResults);
 
+    const metadataDuration = Duration.seconds(videoMeta.duration);
     const metadata = new PodcastMetadataSchema({
       schemaVersion: '0.0.1',
       youtubeVideoId: videoMeta.id,
@@ -748,8 +756,14 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
       metadataLastSyncedAt: now,
       title: videoMeta.title,
       description: videoMeta.description,
-      uploadedAt: videoMeta.upload_date ? yield* DateTime.make(videoMeta.upload_date) : null,
-      duration: Duration.seconds(videoMeta.duration),
+      uploadedAt: videoMeta.upload_date
+        ? DateTime.unsafeMake({
+            year: parseInt(videoMeta.upload_date.slice(0, 4)),
+            month: parseInt(videoMeta.upload_date.slice(4, 6)),
+            day: parseInt(videoMeta.upload_date.slice(6, 8)),
+          })
+        : null,
+      duration: metadataDuration,
       viewCount: videoMeta.view_count,
       likeCount: videoMeta.like_count,
       commentCount: videoMeta.comment_count,
@@ -777,6 +791,11 @@ function processVideo(url: string, options: { skipIfExists?: boolean } = {}) {
     const transcript: typeof TranscriptSchema.Type = {
       schemaVersion: '0.0.1',
       youtubeVideoId: videoMeta.id,
+
+      estimatedCostCents:
+        metadataDuration.pipe(Duration.toHours) *
+        GroqTranscriptionModels[config.transcriptionModel].ratePerHourCents,
+
       createdAt: now,
       audioMetadata,
       groqResponses: chunkResults.map((r) => r.response),
@@ -1041,6 +1060,83 @@ const rebuildCommand = Cli.Command.make(
   ),
 );
 
+// Validation commands
+const validateMetadataCommand = Cli.Command.make('validate-metadata', {}, () =>
+  Effect.gen(function* () {
+    const config = yield* appConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const files = yield* fs.readDirectory(config.podcastsMetadataDir);
+    const jsonFiles = files.filter((f) => f.endsWith('.json'));
+
+    if (jsonFiles.length === 0) {
+      yield* Effect.log('No metadata files to validate');
+      return;
+    }
+
+    yield* Effect.log(`Validating ${jsonFiles.length} metadata file(s)...`);
+
+    let validCount = 0;
+    let invalidCount = 0;
+
+    for (const file of jsonFiles) {
+      const filePath = path.join(config.podcastsMetadataDir, file);
+      const content = yield* fs.readFileString(filePath);
+      const rawJson = yield* Effect.sync(() => JSON.parse(content));
+      const validation = Schema.decodeUnknown(PodcastMetadataSchema)(rawJson);
+      const decoded = yield* Effect.either(validation);
+
+      if (decoded._tag === 'Right') {
+        validCount++;
+        yield* Effect.logDebug(`✓ ${file} - Valid`);
+      } else {
+        invalidCount++;
+        yield* Effect.log(`✗ ${file} - ${decoded.left.message ?? JSON.stringify(decoded.left)}`);
+      }
+    }
+
+    yield* Effect.log(`Validation complete: ${validCount} valid, ${invalidCount} invalid`);
+  }).pipe(Effect.orDie),
+).pipe(Cli.Command.withDescription('Validate all metadata files against schema'));
+
+const validateTranscriptsCommand = Cli.Command.make('validate-transcripts', {}, () =>
+  Effect.gen(function* () {
+    const config = yield* appConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const files = yield* fs.readDirectory(config.transcriptsDir);
+    const jsonFiles = files.filter((f) => f.endsWith('.json'));
+
+    if (jsonFiles.length === 0) {
+      yield* Effect.log('No transcript files to validate');
+      return;
+    }
+
+    yield* Effect.log(`Validating ${jsonFiles.length} transcript file(s)...`);
+
+    let validCount = 0;
+    let invalidCount = 0;
+
+    for (const file of jsonFiles) {
+      const filePath = path.join(config.transcriptsDir, file);
+      const content = yield* fs.readFileString(filePath);
+      const rawJson = yield* Effect.sync(() => JSON.parse(content));
+      const validation = Schema.decodeUnknown(TranscriptSchema)(rawJson);
+      const decoded = yield* Effect.either(validation);
+
+      if (decoded._tag === 'Right') {
+        validCount++;
+        yield* Effect.logDebug(`✓ ${file} - Valid`);
+      } else {
+        invalidCount++;
+        yield* Effect.log(`✗ ${file} - ${decoded.left.message ?? JSON.stringify(decoded.left)}`);
+      }
+    }
+
+    yield* Effect.log(`Validation complete: ${validCount} valid, ${invalidCount} invalid`);
+  }).pipe(Effect.orDie),
+).pipe(Cli.Command.withDescription('Validate all transcript files against schema'));
+
 // Root command with subcommands
 const rootCommand = Cli.Command.make('yt-transcript', {}).pipe(
   Cli.Command.withSubcommands([
@@ -1048,6 +1144,8 @@ const rootCommand = Cli.Command.make('yt-transcript', {}).pipe(
     updateMetadataCommand,
     reprocessTranscriptCommand,
     rebuildCommand,
+    validateMetadataCommand,
+    validateTranscriptsCommand,
   ]),
   Cli.Command.withDescription('Podcast transcript CLI for managing video transcriptions'),
 );

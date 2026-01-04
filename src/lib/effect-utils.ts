@@ -65,7 +65,7 @@ export const CommandUtils = {
       command,
       CommandUtils.runCommandBuffered({
         stdoutTap: (value) => Effect.logDebug(`stdout: ${value}`),
-        stderrTap: (value) => Effect.logError(`stderr: ${value}`),
+        stderrTap: (value) => Effect.logDebug(`stderr: ${value}`),
       }),
     ),
 };
