@@ -103,6 +103,16 @@ function LlmContentPage() {
 
   const systemPromptRevision = (post as { systemPromptRevision?: number }).systemPromptRevision;
   const transcriptWordCount = (post as { transcriptWordCount?: number }).transcriptWordCount;
+  const model = (post as { model?: any }).model as
+    | {
+        providerName?: string;
+        reasoning?: boolean;
+        tool_call?: boolean;
+        limit?: { context?: number };
+        cost?: { input?: number; output?: number };
+        last_updated?: string;
+      }
+    | undefined;
   const { title: llmPostTitle, body: llmPostBody } = extractLeadingH1(post.content);
 
   const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'error'>('idle');
@@ -142,7 +152,7 @@ function LlmContentPage() {
                     });
                   }}
                 >
-                  {(availableModels.length ? availableModels : [post.llmModel]).map((m) => (
+                  {(availableModels.length ? availableModels : [post.llmModel]).map((m: string) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
@@ -156,6 +166,31 @@ function LlmContentPage() {
                 <span className='tabular-nums'>
                   Transcript: {transcriptWordCount.toLocaleString()} words
                 </span>
+              ) : null}
+              {model ? (
+                <>
+                  {typeof model.limit?.context === 'number' ? (
+                    <span className='tabular-nums'>
+                      Context: {model.limit.context.toLocaleString()}
+                    </span>
+                  ) : null}
+                  <span>
+                    Capabilities:{' '}
+                    <span className='text-foreground'>
+                      {model.reasoning ? 'reasoning' : 'no reasoning'},{' '}
+                      {model.tool_call ? 'tools' : 'no tools'}
+                    </span>
+                  </span>
+                  {typeof model.cost?.input === 'number' &&
+                  typeof model.cost?.output === 'number' ? (
+                    <span className='tabular-nums'>
+                      Est. cost: ${model.cost.input}/ ${model.cost.output} per 1M (in/out)
+                    </span>
+                  ) : null}
+                  {typeof model.last_updated === 'string' ? (
+                    <span className='tabular-nums'>Updated: {model.last_updated}</span>
+                  ) : null}
+                </>
               ) : null}
               <span className='tabular-nums'>
                 Response: {(post.responseTimeMs / 1000).toFixed(1)}s

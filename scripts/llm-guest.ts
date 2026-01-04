@@ -19,12 +19,14 @@ import { BunContext, BunRuntime } from '@effect/platform-bun';
 import { FileSystem, Path, FetchHttpClient } from '@effect/platform';
 import * as Cli from '@effect/cli';
 import { Config, Data, DateTime, Effect, Layer, Option, Schema } from 'effect';
-import { LanguageModel, Prompt, Response } from '@effect/ai';
+import { LanguageModel, Prompt } from '@effect/ai';
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic';
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai';
 import matter from 'gray-matter';
 
 import { getLatestSystemPrompt } from '@/llm-prompts';
+import { ModelsDevCacheService } from '@/lib/models-dev-cache';
+import { ModelsDevApi, ModelsDevModelFrontmatter } from '@/lib/schemas/models-dev';
 import { PodcastMetadataSchema } from '@/lib/schemas/podcast-metadata';
 import { TranscriptSchema } from '@/lib/schemas/transcript';
 
@@ -55,6 +57,9 @@ const appConfig = Config.all({
   openrouterBaseUrl: Config.string('OPENROUTER_BASE_URL').pipe(
     Config.withDefault('https://openrouter.ai/api/v1'),
   ),
+  modelsDevCacheFile: Config.string('MODELS_DEV_CACHE_FILE').pipe(
+    Config.withDefault('node_modules/.cache/models.dev/api.json'),
+  ),
   podcastsMetadataDir: Config.string('PODCASTS_METADATA_DIR').pipe(
     Config.withDefault('src/content/podcasts-metadata'),
   ),
@@ -66,73 +71,85 @@ const appConfig = Config.all({
   ),
 });
 
-function extractCostCentsFromResponse(response: LanguageModel.GenerateTextResponse<{}>): number {
-  // Effect AI responses always contain a finish part for non-streaming calls.
-  // Cost is provider-specific; we try a few common locations and fall back to 0.
-  const finish = response.content.find((p): p is Response.FinishPart => p.type === 'finish');
-  if (!finish) return 0;
+function estimateCostCentsFromModelsDev(options: {
+  model: ModelsDevModelFrontmatter | null;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}) {
+  const m = options.model;
+  if (!m) return 0;
 
-  const metadata = finish.metadata;
-  if (!metadata || typeof metadata !== 'object') return 0;
+  const inputPerM = m.cost?.input ?? 0;
+  const outputPerM = m.cost?.output ?? 0;
+  const reasoningPerM = m.cost?.reasoning ?? outputPerM;
 
-  // Try direct costCents property
-  if ('costCents' in metadata) {
-    const directCents = metadata.costCents;
-    if (typeof directCents === 'number' && Number.isFinite(directCents))
-      return Math.round(directCents);
-  }
+  const usd =
+    (options.inputTokens / 1_000_000) * inputPerM +
+    (options.outputTokens / 1_000_000) * outputPerM +
+    (options.reasoningTokens / 1_000_000) * reasoningPerM;
 
-  // Try provider-specific costCents (openai.costCents, anthropic.costCents, groq.costCents)
-  const checkProviderCents = (provider: string) => {
-    if (provider in metadata) {
-      const providerObj = metadata[provider];
-      if (
-        providerObj &&
-        typeof providerObj === 'object' &&
-        'costCents' in providerObj &&
-        typeof providerObj.costCents === 'number' &&
-        Number.isFinite(providerObj.costCents)
-      ) {
-        return Math.round(providerObj.costCents);
+  return Math.round(usd * 100);
+}
+
+function getModelsDevModelFrontmatter(options: {
+  api: ModelsDevApi;
+  modelId: string;
+}): ModelsDevModelFrontmatter | null {
+  // models.dev api.json is: providerId -> { id, name, models: { modelKey -> modelSpec } }
+  const requested = options.modelId;
+
+  // Fast path: provider-qualified IDs like "openrouter/gpt-4o" or "zai/glm-4.6"
+  if (requested.includes('/')) {
+    const [providerId, ...rest] = requested.split('/');
+    const provider = options.api[providerId];
+    if (provider) {
+      const key = rest.join('/');
+      const model = provider.models[key] ?? provider.models[requested];
+      if (model) {
+        return {
+          id: requested,
+          name: model.name,
+          providerId,
+          providerName: provider.name ?? providerId,
+          attachment: !!model.attachment,
+          reasoning: !!model.reasoning,
+          tool_call: !!model.tool_call,
+          cost: model.cost,
+          limit: model.limit,
+          modalities: model.modalities,
+          release_date: model.release_date,
+          last_updated: model.last_updated,
+          open_weights: !!model.open_weights,
+        };
       }
     }
-    return null;
-  };
-
-  const openaiCents = checkProviderCents('openai');
-  if (openaiCents !== null) return openaiCents;
-
-  const anthropicCents = checkProviderCents('anthropic');
-  if (anthropicCents !== null) return anthropicCents;
-
-  const groqCents = checkProviderCents('groq');
-  if (groqCents !== null) return groqCents;
-
-  // Try costUsd and convert to cents
-  const checkCostUsd = (obj: unknown): number | null => {
-    if (obj && typeof obj === 'object' && 'costUsd' in obj) {
-      const cost = obj.costUsd;
-      if (typeof cost === 'number' && Number.isFinite(cost)) {
-        return Math.round(cost * 100);
-      }
-    }
-    return null;
-  };
-
-  const directUsd = checkCostUsd(metadata);
-  if (directUsd !== null) return directUsd;
-
-  if ('openai' in metadata) {
-    const openaiUsd = checkCostUsd(metadata.openai);
-    if (openaiUsd !== null) return openaiUsd;
   }
 
-  if ('anthropic' in metadata) {
-    const anthropicUsd = checkCostUsd(metadata.anthropic);
-    if (anthropicUsd !== null) return anthropicUsd;
+  // Slow path: search for an unqualified ID like "gpt-4o" or "claude-sonnet-4-20250514"
+  for (const [providerId, provider] of Object.entries(options.api)) {
+    const m = provider.models[requested];
+    if (!m) continue;
+
+    const fullId = `${providerId}/${requested}`;
+    return {
+      id: fullId,
+      name: m.name,
+      providerId,
+      providerName: provider.name ?? providerId,
+      attachment: !!m.attachment,
+      reasoning: !!m.reasoning,
+      tool_call: !!m.tool_call,
+      cost: m.cost,
+      limit: m.limit,
+      modalities: m.modalities,
+      release_date: m.release_date,
+      last_updated: m.last_updated,
+      open_weights: !!m.open_weights,
+    };
   }
 
-  return 0;
+  return null;
 }
 
 // ============================================================================
@@ -277,6 +294,7 @@ class FileService extends Effect.Service<FileService>()('app/FileService', {
       responseTimeMs: number;
       systemPromptRevision: number;
       transcriptWordCount?: number;
+      model?: ModelsDevModelFrontmatter;
       usage: {
         inputTokens: number;
         outputTokens: number;
@@ -289,21 +307,32 @@ class FileService extends Effect.Service<FileService>()('app/FileService', {
       Effect.gen(function* () {
         yield* fs.makeDirectory(config.llmGeneratedDir, { recursive: true });
         const outPath = llmOutputPath(content.youtubeVideoId, content.llmModel);
+        const frontmatter: Record<string, unknown> = {
+          schemaVersion: content.schemaVersion,
+          youtubeVideoId: content.youtubeVideoId,
+          llmModel: content.llmModel,
+          createdAt: content.createdAt,
+          responseTimeMs: content.responseTimeMs,
+          inputTokens: content.usage.inputTokens,
+          outputTokens: content.usage.outputTokens,
+          totalTokens: content.usage.totalTokens,
+          estimatedCostCents: content.estimatedCostCents,
+          systemPromptRevision: content.systemPromptRevision,
+        };
+
+        // IMPORTANT: gray-matter/js-yaml cannot serialize `undefined`.
+        if (typeof content.usage.reasoningTokens === 'number') {
+          frontmatter.reasoningTokens = content.usage.reasoningTokens;
+        }
+        if (typeof content.transcriptWordCount === 'number') {
+          frontmatter.transcriptWordCount = content.transcriptWordCount;
+        }
+        if (content.model) {
+          frontmatter.model = content.model;
+        }
+
         const md = yield* Effect.sync(() =>
-          matter.stringify(content.markdownContent.trim() + '\n', {
-            schemaVersion: content.schemaVersion,
-            youtubeVideoId: content.youtubeVideoId,
-            llmModel: content.llmModel,
-            createdAt: content.createdAt,
-            responseTimeMs: content.responseTimeMs,
-            inputTokens: content.usage.inputTokens,
-            outputTokens: content.usage.outputTokens,
-            reasoningTokens: content.usage.reasoningTokens,
-            totalTokens: content.usage.totalTokens,
-            estimatedCostCents: content.estimatedCostCents,
-            systemPromptRevision: content.systemPromptRevision,
-            transcriptWordCount: content.transcriptWordCount,
-          }),
+          matter.stringify(content.markdownContent.trim() + '\n', frontmatter),
         );
         yield* fs.writeFileString(outPath, md);
         yield* Effect.log(`LLM markdown saved to: ${outPath}`);
@@ -366,8 +395,6 @@ class LlmGuestService extends Effect.Service<LlmGuestService>()('app/LlmGuestSer
         const totalTokens = response.usage.totalTokens ?? inputTokens + outputTokens;
         const reasoningTokens = response.usage.reasoningTokens;
 
-        const estimatedCostCents = extractCostCentsFromResponse(response);
-
         return {
           llmModel: options.llmModel,
           responseTimeMs,
@@ -377,7 +404,6 @@ class LlmGuestService extends Effect.Service<LlmGuestService>()('app/LlmGuestSer
             reasoningTokens,
             totalTokens,
           },
-          estimatedCostCents,
           markdownContent: response.text,
         } as const;
       });
@@ -403,6 +429,7 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
     const config = yield* appConfig;
     const fileService = yield* FileService;
     const llmGuest = yield* LlmGuestService;
+    const modelsDev = yield* ModelsDevCacheService;
 
     const exists = yield* fileService.checkLlmContentExists(videoId, options.model);
     if (exists && options.skipIfExists) {
@@ -416,6 +443,17 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
     const transcriptWordCount = countWords(transcriptText);
 
     yield* Effect.log(`Generating LLM guest post for: ${metadata.title}`);
+    const modelsDevApi = yield* modelsDev.loadApi({ cacheFile: config.modelsDevCacheFile });
+    const model = getModelsDevModelFrontmatter({ api: modelsDevApi, modelId: options.model });
+    if (!model) {
+      yield* Effect.log(
+        `models.dev: no metadata found for model "${options.model}" (continuing without pricing/capabilities)`,
+      );
+    } else {
+      yield* Effect.log(
+        `models.dev: ${model.name} (${model.providerName}) — context ${model.limit.context.toLocaleString()} tokens`,
+      );
+    }
 
     const createdAt = yield* Effect.sync(() => new Date().toISOString());
     const modelSpec = classifyModel(options.model);
@@ -472,7 +510,13 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
       systemPromptRevision,
       transcriptWordCount,
       usage: generated.usage,
-      estimatedCostCents: generated.estimatedCostCents,
+      estimatedCostCents: estimateCostCentsFromModelsDev({
+        model,
+        inputTokens: generated.usage.inputTokens,
+        outputTokens: generated.usage.outputTokens,
+        reasoningTokens: generated.usage.reasoningTokens ?? 0,
+      }),
+      model: model ?? undefined,
       markdownContent: generated.markdownContent,
     };
 
@@ -583,9 +627,11 @@ const rootCommand = Cli.Command.make('llm-guest', {}).pipe(
 // ============================================================================
 
 const baseLayers = Layer.mergeAll(BunContext.layer, FetchHttpClient.layer);
-const serviceLayers = Layer.mergeAll(FileService.Default, LlmGuestService.Default).pipe(
-  Layer.provide(baseLayers),
-);
+const serviceLayers = Layer.mergeAll(
+  FileService.Default,
+  LlmGuestService.Default,
+  ModelsDevCacheService.Default,
+).pipe(Layer.provide(baseLayers));
 const AppLayer = Layer.mergeAll(baseLayers, serviceLayers);
 
 const cli = Cli.Command.run(rootCommand, {

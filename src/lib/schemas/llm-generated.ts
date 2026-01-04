@@ -1,5 +1,7 @@
 import { Schema } from 'effect';
 
+import { ModelsDevModelFrontmatterSchema } from '@/lib/schemas/models-dev';
+
 /**
  * Schema for the LLM-generated markdown files in `src/content/llm-generated/*.md`.
  *
@@ -20,6 +22,7 @@ export const LlmGeneratedFrontmatterSchema = Schema.Struct({
   totalTokens: Schema.Number,
 
   estimatedCostCents: Schema.Number,
+  model: Schema.optional(ModelsDevModelFrontmatterSchema),
   systemPromptRevision: Schema.optional(Schema.Number),
   systemPrompt: Schema.optional(Schema.String),
 
