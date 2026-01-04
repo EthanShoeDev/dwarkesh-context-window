@@ -35,13 +35,14 @@ model:
   last_updated: '2024-05-13'
   open_weights: false
 ---
+
 # Unraveling the Brain: The Quest for AI Understanding
 
 In the recent episode of the Dwarkesh Patel podcast, a rich discussion unfolded between Dwarkesh and Adam Marblestone, exploring the intricate relationships between neuroscience and the evolution of artificial intelligence. They delved into the profound questions about how brains learn from minimal data, the potential lessons AI can garner from neuroscience, and the mysteries of how the genome encodes abstract reward functions. While the conversation was broad and insightful, there is an opportunity to delve even deeper into some of the fascinating threads they touched upon.
 
 ## 1. The Role of Reward Functions in AI and the Brain
 
-Marblestone highlighted the underestimated complexity of biological loss functions and proposed that evolution has encoded intricate reward mechanisms. This notion opens up an intriguing research path: exploring how multi-objective optimization in artificial networks could emulate these biological processes. 
+Marblestone highlighted the underestimated complexity of biological loss functions and proposed that evolution has encoded intricate reward mechanisms. This notion opens up an intriguing research path: exploring how multi-objective optimization in artificial networks could emulate these biological processes.
 
 **Experimental Direction:** Develop AI systems with modular reward functions to simulate the adaptive and multi-faceted nature of brain-based learning. By employing evolutionary algorithms or multi-agent reinforcement learning, researchers could create environments where agents evolve to prioritize different "survival" functions. This might offer insights into how biological systems balance competing objectives.
 

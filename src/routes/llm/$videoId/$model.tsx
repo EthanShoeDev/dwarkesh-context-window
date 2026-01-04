@@ -8,6 +8,7 @@ import { getSystemPromptByRevision } from '@/llm-prompts';
 import { Button } from '@/components/ui/button';
 import { buttonVariants } from '@/components/ui/button';
 import { sortModelsByPriority } from '@/lib/model-priority';
+import { loadPodcastMetadata } from '@/lib/podcast-metadata';
 
 function safeDecodeURIComponent(value: string) {
   try {
@@ -20,14 +21,6 @@ function safeDecodeURIComponent(value: string) {
 function encodeModelParam(model: string) {
   // Make OpenRouter-style model IDs (provider/model) safe as a single path segment.
   return encodeURIComponent(model);
-}
-
-async function loadPodcastMetadata(videoId: string) {
-  const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
-  const key = `/src/content/podcasts-metadata/${videoId}.json`;
-  const mod = glob[key] as { default?: unknown } | undefined;
-  if (!mod) return null;
-  return (mod as any).default ?? mod;
 }
 
 function youtubeUrl(videoId: string) {

@@ -3,22 +3,10 @@ import { allLlmPosts } from 'content-collections';
 
 import { buttonVariants } from '@/components/ui/button';
 import { pickDefaultModel } from '@/lib/model-priority';
+import { loadPodcastMetadataMap } from '@/lib/podcast-metadata';
 
 function encodeModelParam(model: string) {
   return encodeURIComponent(model);
-}
-
-function loadPodcastMetadataMap() {
-  const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
-  const map = new Map<string, { title: string }>();
-  for (const [path, mod] of Object.entries(glob)) {
-    const filename = path.split('/').pop()?.replace('.json', '') ?? '';
-    const data = (mod as any).default ?? mod;
-    if (typeof data?.title === 'string') {
-      map.set(filename, { title: data.title });
-    }
-  }
-  return map;
 }
 
 export const Route = createFileRoute('/llm/')({

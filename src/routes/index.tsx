@@ -3,66 +3,59 @@ import { allLlmPosts } from 'content-collections';
 
 import { buttonVariants } from '@/components/ui/button';
 import { pickDefaultModel } from '@/lib/model-priority';
+import { loadPodcastMetadataMap } from '@/lib/podcast-metadata';
 
 function encodeModelParam(model: string) {
   return encodeURIComponent(model);
 }
 
-function loadPodcastMetadataMap() {
-  const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
-  const map = new Map<string, { title: string }>();
-  for (const [path, mod] of Object.entries(glob)) {
-    const filename = path.split('/').pop()?.replace('.json', '') ?? '';
-    const data = (mod as any).default ?? mod;
-    if (typeof data?.title === 'string') {
-      map.set(filename, { title: data.title });
-    }
-  }
-  return map;
-}
-
 export const Route = createFileRoute('/')({
   loader: () => {
-    const meta = loadPodcastMetadataMap();
-    const groups = new Map<
-      string,
-      {
-        youtubeVideoId: string;
-        videoTitle: string;
-        models: string[];
-        latestCreatedAt: string;
-        defaultModel: string;
+    try {
+      const meta = loadPodcastMetadataMap();
+      const groups = new Map<
+        string,
+        {
+          youtubeVideoId: string;
+          videoTitle: string;
+          models: string[];
+          latestCreatedAt: string;
+          defaultModel: string;
+        }
+      >();
+
+      for (const post of allLlmPosts) {
+        const g = groups.get(post.youtubeVideoId);
+        const createdAt = post.createdAt;
+        const videoTitle = meta.get(post.youtubeVideoId)?.title ?? post.youtubeVideoId;
+        if (!g) {
+          groups.set(post.youtubeVideoId, {
+            youtubeVideoId: post.youtubeVideoId,
+            videoTitle,
+            models: [post.llmModel],
+            latestCreatedAt: createdAt,
+            defaultModel: post.llmModel,
+          });
+        } else {
+          if (!g.models.includes(post.llmModel)) g.models.push(post.llmModel);
+          if (Date.parse(createdAt) > Date.parse(g.latestCreatedAt)) g.latestCreatedAt = createdAt;
+        }
       }
-    >();
 
-    for (const post of allLlmPosts) {
-      const g = groups.get(post.youtubeVideoId);
-      const createdAt = post.createdAt;
-      const videoTitle = meta.get(post.youtubeVideoId)?.title ?? post.youtubeVideoId;
-      if (!g) {
-        groups.set(post.youtubeVideoId, {
-          youtubeVideoId: post.youtubeVideoId,
-          videoTitle,
-          models: [post.llmModel],
-          latestCreatedAt: createdAt,
-          defaultModel: post.llmModel,
-        });
-      } else {
-        if (!g.models.includes(post.llmModel)) g.models.push(post.llmModel);
-        if (Date.parse(createdAt) > Date.parse(g.latestCreatedAt)) g.latestCreatedAt = createdAt;
+      for (const g of groups.values()) {
+        const chosen = pickDefaultModel(g.models);
+        g.defaultModel = chosen ?? g.models[0]!;
       }
+
+      const podcasts = Array.from(groups.values())
+        .sort((a, b) => Date.parse(b.latestCreatedAt) - Date.parse(a.latestCreatedAt))
+        .slice(0, 5);
+
+      return { podcasts };
+    } catch (error) {
+      console.error('Loader error:', error);
+      throw error;
     }
-
-    for (const g of groups.values()) {
-      const chosen = pickDefaultModel(g.models);
-      g.defaultModel = chosen ?? g.models[0]!;
-    }
-
-    const podcasts = Array.from(groups.values())
-      .sort((a, b) => Date.parse(b.latestCreatedAt) - Date.parse(a.latestCreatedAt))
-      .slice(0, 5);
-
-    return { podcasts };
   },
   component: HomePage,
 });

@@ -1,11 +1,26 @@
 import { HeadContent, Link, Scripts, createRootRoute } from '@tanstack/react-router';
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
 import { TanStackDevtools } from '@tanstack/react-devtools';
+import { createClientOnlyFn } from '@tanstack/react-start';
 
 import { ModeToggle } from '@/components/mode-toggle';
 import { buttonVariants } from '@/components/ui/button';
 import { ThemeProvider } from '@/components/theme-provider';
 import appCss from '../styles.css?url';
+
+const renderDevtools = createClientOnlyFn(() => (
+  <TanStackDevtools
+    config={{
+      position: 'bottom-right',
+    }}
+    plugins={[
+      {
+        name: 'Tanstack Router',
+        render: <TanStackRouterDevtoolsPanel />,
+      },
+    ]}
+  />
+));
 
 export const Route = createRootRoute({
   head: () => ({
@@ -103,17 +118,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <Footer />
           </div>
         </ThemeProvider>
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        {renderDevtools()}
         <Scripts />
       </body>
     </html>

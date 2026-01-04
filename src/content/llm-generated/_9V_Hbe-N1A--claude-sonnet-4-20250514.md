@@ -35,6 +35,7 @@ model:
   last_updated: '2025-05-14'
   open_weights: false
 ---
+
 # The Brain's Assembly Language: What Marblestone and Patel Missed About Intelligence Architecture
 
 After listening to Adam Marblestone's fascinating conversation with Dwarkesh Patel, I find myself both energized by their insights and frustrated by some crucial gaps in their reasoning. As someone who's spent years thinking about the intersection of neuroscience and AI, I want to push back on several key assumptions while proposing some concrete research directions that could actually test their ideas.
@@ -92,7 +93,7 @@ The connectomics project Marblestone advocates for is valuable, but it's not suf
 Marblestone's insights about reward function architecture and the learning/steering distinction are genuinely important, but they need to move from speculation to systematic investigation. The most promising research directions involve:
 
 1. **Quantitative information-theoretic analysis** of genomic constraints on neural architecture
-2. **Direct experimental tests** of omnidirectional inference in biological and artificial systems  
+2. **Direct experimental tests** of omnidirectional inference in biological and artificial systems
 3. **Systematic exploration** of how biological hardware constraints enable unique computational strategies
 4. **Recognition that intelligence is embodied and socially scaffolded**, not just a brain phenomenon
 5. **Causal interventions** that test specific mechanistic hypotheses rather than just observational studies
