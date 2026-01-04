@@ -5,6 +5,7 @@ import viteReact from '@vitejs/plugin-react';
 import viteTsConfigPaths from 'vite-tsconfig-paths';
 import tailwindcss from '@tailwindcss/vite';
 import { nitro } from 'nitro/vite';
+import contentCollections from '@content-collections/vite';
 
 const config = defineConfig({
   plugins: [
@@ -15,7 +16,14 @@ const config = defineConfig({
       projects: ['./tsconfig.json'],
     }),
     tailwindcss(),
-    tanstackStart(),
+    contentCollections(),
+    tanstackStart({
+      prerender: {
+        enabled: true,
+        crawlLinks: true,
+        autoStaticPathsDiscovery: true,
+      },
+    }),
     viteReact(),
   ],
 });

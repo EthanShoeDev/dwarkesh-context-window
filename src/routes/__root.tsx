@@ -1,4 +1,4 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
+import { HeadContent, Link, Scripts, createRootRoute } from '@tanstack/react-router';
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
 import { TanStackDevtools } from '@tanstack/react-devtools';
 
@@ -15,7 +15,7 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Dwarkesh Context Window',
       },
     ],
     links: [
@@ -31,9 +31,26 @@ export const Route = createRootRoute({
 
 function Header() {
   return (
-    <div>
-      <h1>Header</h1>
-    </div>
+    <header className='px-6 py-4 border-b border-slate-200/20'>
+      <div className='max-w-5xl mx-auto flex items-center justify-between gap-6'>
+        <div className='flex items-center gap-4'>
+          <Link to='/' className='font-semibold'>
+            Dwarkesh Context Window
+          </Link>
+          <nav className='flex items-center gap-4 text-sm'>
+            <Link to='/'>Home</Link>
+            <Link to='/llm'>Posts</Link>
+            <a
+              href='https://github.com/EthanShoeDev/dwarkesh-context-window'
+              target='_blank'
+              rel='noreferrer'
+            >
+              GitHub
+            </a>
+          </nav>
+        </div>
+      </div>
+    </header>
   );
 }
 

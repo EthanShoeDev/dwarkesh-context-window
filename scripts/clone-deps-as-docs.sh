@@ -12,3 +12,4 @@ gh repo clone floydspace/effect-aws
 # gh repo clone groq/groq-api-cookbook
 gh repo clone TanStack/router
 gh repo clone TanStack/tanstack.com
+gh repo clone sdorra/content-collections

@@ -16,13 +16,13 @@
 import { BunContext, BunRuntime } from '@effect/platform-bun';
 import { FileSystem, Path, FetchHttpClient } from '@effect/platform';
 import * as Cli from '@effect/cli';
-import { Config, Data, DateTime, Duration, Effect, Layer, Option, Schema } from 'effect';
+import { Config, Data, DateTime, Effect, Layer, Option, Schema } from 'effect';
 import { LanguageModel, Prompt } from '@effect/ai';
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic';
+import matter from 'gray-matter';
 
 import { PodcastMetadataSchema } from '@/lib/schemas/podcast-metadata';
 import { TranscriptSchema } from '@/lib/schemas/transcript';
-import { LlmGeneratedContentSchema } from '@/lib/schemas/llm-generated';
 
 // ============================================================================
 // Errors
@@ -188,7 +188,7 @@ class FileService extends Effect.Service<FileService>()('app/FileService', {
       });
 
     const llmOutputPath = (videoId: string, model: string) =>
-      path.join(config.llmGeneratedDir, `${videoId}--${model}.json`);
+      path.join(config.llmGeneratedDir, `${videoId}--${model}.md`);
 
     const checkLlmContentExists = (videoId: string, model: string) =>
       Effect.gen(function* () {
@@ -196,14 +196,42 @@ class FileService extends Effect.Service<FileService>()('app/FileService', {
         return yield* fs.exists(outPath);
       });
 
-    const writeLlmContent = (content: typeof LlmGeneratedContentSchema.Type) =>
+    const writeLlmContent = (content: {
+      schemaVersion: '0.0.1';
+      youtubeVideoId: string;
+      llmModel: string;
+      createdAt: string;
+      responseTimeMs: number;
+      systemPrompt?: string;
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        reasoningTokens?: number;
+        totalTokens: number;
+      };
+      estimatedCostCents: number;
+      markdownContent: string;
+    }) =>
       Effect.gen(function* () {
         yield* fs.makeDirectory(config.llmGeneratedDir, { recursive: true });
         const outPath = llmOutputPath(content.youtubeVideoId, content.llmModel);
-        const encoded = yield* Schema.encodeUnknown(LlmGeneratedContentSchema)(content);
-        const json = yield* Effect.sync(() => JSON.stringify(encoded, null, 2));
-        yield* fs.writeFileString(outPath, json);
-        yield* Effect.log(`LLM content saved to: ${outPath}`);
+        const md = yield* Effect.sync(() =>
+          matter.stringify(content.markdownContent.trim() + '\n', {
+            schemaVersion: content.schemaVersion,
+            youtubeVideoId: content.youtubeVideoId,
+            llmModel: content.llmModel,
+            createdAt: content.createdAt,
+            responseTimeMs: content.responseTimeMs,
+            inputTokens: content.usage.inputTokens,
+            outputTokens: content.usage.outputTokens,
+            reasoningTokens: content.usage.reasoningTokens,
+            totalTokens: content.usage.totalTokens,
+            estimatedCostCents: content.estimatedCostCents,
+            systemPrompt: content.systemPrompt,
+          }),
+        );
+        yield* fs.writeFileString(outPath, md);
+        yield* Effect.log(`LLM markdown saved to: ${outPath}`);
         return outPath;
       });
 
@@ -257,7 +285,7 @@ class LlmGuestService extends Effect.Service<LlmGuestService>()('app/LlmGuestSer
         );
 
         const end = yield* DateTime.now;
-        const responseTime = Duration.millis(end.epochMillis - start.epochMillis);
+        const responseTimeMs = end.epochMillis - start.epochMillis;
 
         const inputTokens = response.usage.inputTokens ?? 0;
         const outputTokens = response.usage.outputTokens ?? 0;
@@ -268,7 +296,7 @@ class LlmGuestService extends Effect.Service<LlmGuestService>()('app/LlmGuestSer
 
         return {
           llmModel: config.llmModel,
-          responseTime,
+          responseTimeMs,
           usage: {
             inputTokens,
             outputTokens,
@@ -314,7 +342,7 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean })
 
     yield* Effect.log(`Generating LLM guest post for: ${metadata.title}`);
 
-    const now = yield* DateTime.now;
+    const createdAt = yield* Effect.sync(() => new Date().toISOString());
     const generated = yield* llmGuest.generateMarkdown({
       videoId,
       title: metadata.title,
@@ -322,12 +350,13 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean })
       transcriptText,
     });
 
-    const payload: typeof LlmGeneratedContentSchema.Type = {
-      schemaVersion: '0.0.1',
+    const payload = {
+      schemaVersion: '0.0.1' as const,
       youtubeVideoId: videoId,
       llmModel: generated.llmModel,
-      createdAt: now,
-      responseTime: generated.responseTime,
+      createdAt,
+      responseTimeMs: generated.responseTimeMs,
+      systemPrompt,
       usage: generated.usage,
       estimatedCostCents: generated.estimatedCostCents,
       markdownContent: generated.markdownContent,
