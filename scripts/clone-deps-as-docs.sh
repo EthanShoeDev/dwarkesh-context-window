@@ -13,3 +13,6 @@ gh repo clone floydspace/effect-aws
 gh repo clone TanStack/router
 gh repo clone TanStack/tanstack.com
 gh repo clone sdorra/content-collections
+gh repo clone tailwindlabs/tailwindcss
+gh repo clone tailwindlabs/tailwindcss.com
+gh repo clone tailwindlabs/tailwindcss-typography

@@ -2,6 +2,9 @@ import { HeadContent, Link, Scripts, createRootRoute } from '@tanstack/react-rou
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools';
 import { TanStackDevtools } from '@tanstack/react-devtools';
 
+import { ModeToggle } from '@/components/mode-toggle';
+import { buttonVariants } from '@/components/ui/button';
+import { ThemeProvider } from '@/components/theme-provider';
 import appCss from '../styles.css?url';
 
 export const Route = createRootRoute({
@@ -31,26 +34,56 @@ export const Route = createRootRoute({
 
 function Header() {
   return (
-    <header className='px-6 py-4 border-b border-slate-200/20'>
-      <div className='max-w-5xl mx-auto flex items-center justify-between gap-6'>
-        <div className='flex items-center gap-4'>
-          <Link to='/' className='font-semibold'>
+    <header className='border-b bg-background/80 backdrop-blur supports-backdrop-filter:bg-background/60'>
+      <div className='max-w-5xl mx-auto flex items-center justify-between gap-6 px-6 py-5'>
+        <div className='flex items-center gap-3'>
+          <Link to='/' className='font-semibold tracking-tight'>
             Dwarkesh Context Window
           </Link>
-          <nav className='flex items-center gap-4 text-sm'>
-            <Link to='/'>Home</Link>
-            <Link to='/llm'>Posts</Link>
+          <nav className='flex items-center gap-1 text-sm text-muted-foreground'>
+            <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+              Home
+            </Link>
+            <Link to='/llm' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+              Posts
+            </Link>
             <a
               href='https://github.com/EthanShoeDev/dwarkesh-context-window'
               target='_blank'
               rel='noreferrer'
+              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
             >
               GitHub
             </a>
           </nav>
         </div>
+        <div className='flex items-center gap-2'>
+          <ModeToggle />
+        </div>
       </div>
     </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className='border-t'>
+      <div className='max-w-5xl mx-auto px-6 py-10 text-sm text-muted-foreground'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+          <p>Not affiliated with Dwarkesh Patel.</p>
+          <div className='flex items-center gap-4'>
+            <a
+              href='https://github.com/EthanShoeDev/dwarkesh-context-window'
+              target='_blank'
+              rel='noreferrer'
+              className='underline underline-offset-4 hover:text-foreground'
+            >
+              Source
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -61,8 +94,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <Header />
-        {children}
+        <ThemeProvider defaultTheme='dark' storageKey='vite-ui-theme'>
+          <div className='min-h-dvh flex flex-col'>
+            <Header />
+            <main className='flex-1'>
+              <div className='max-w-5xl mx-auto px-6 py-10'>{children}</div>
+            </main>
+            <Footer />
+          </div>
+        </ThemeProvider>
         <TanStackDevtools
           config={{
             position: 'bottom-right',

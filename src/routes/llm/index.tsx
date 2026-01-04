@@ -1,6 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { allLlmPosts } from 'content-collections';
 
+import { buttonVariants } from '@/components/ui/button';
+
 function loadPodcastMetadataMap() {
   const glob = import.meta.glob('/src/content/podcasts-metadata/*.json', { eager: true });
   const map = new Map<string, { title: string }>();
@@ -35,18 +37,34 @@ export const Route = createFileRoute('/llm/')({
 function LlmIndex() {
   const posts = Route.useLoaderData();
   return (
-    <div className='max-w-4xl mx-auto py-12 px-4'>
-      <h1 className='text-3xl font-bold mb-8'>AI Guest Posts</h1>
-      <ul className='space-y-4'>
+    <div className='space-y-6'>
+      <header className='space-y-2'>
+        <div className='flex flex-wrap items-center justify-between gap-3'>
+          <h1 className='text-3xl font-semibold tracking-tight'>AI Guest Posts</h1>
+          <Link to='/' className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+            Back home
+          </Link>
+        </div>
+        <p className='text-sm text-muted-foreground'>
+          LLM-generated “third guest” expansions of Dwarkesh podcast transcripts.
+        </p>
+      </header>
+
+      <ul className='grid gap-3 sm:grid-cols-2'>
         {posts.map((post) => (
           <li key={`${post.youtubeVideoId}--${post.llmModel}`}>
             <Link
               to='/llm/$videoId/$model'
               params={{ videoId: post.youtubeVideoId, model: post.llmModel }}
-              className='block p-4 border rounded hover:bg-gray-50 dark:hover:bg-gray-800'
+              className='group block rounded-xl border bg-card p-4 text-card-foreground shadow-sm transition-colors hover:bg-muted/50'
             >
-              <h2 className='font-semibold'>{post.videoTitle}</h2>
-              <p className='text-sm text-gray-500'>Model: {post.llmModel}</p>
+              <h2 className='font-medium leading-snug group-hover:underline group-hover:underline-offset-4'>
+                {post.videoTitle}
+              </h2>
+              <p className='mt-1 text-xs text-muted-foreground'>Model: {post.llmModel}</p>
+              <p className='mt-1 text-xs text-muted-foreground'>
+                {new Date(post.createdAt).toLocaleString()}
+              </p>
             </Link>
           </li>
         ))}
