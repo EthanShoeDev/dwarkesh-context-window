@@ -1,8 +1,34 @@
 diff --git a/dist/_build/vite.plugin.mjs b/dist/_build/vite.plugin.mjs
-index 692b0229704ff6f5fc116eb236d5e74099349693..e23328a09020fe4c927d3a0a82c83ff9be3cdf67 100644
+index 692b0229704ff6f5fc116eb236d5e74099349693..107d67e41ce666ae4152aa18662f1c937a315188 100644
 --- a/dist/_build/vite.plugin.mjs
 +++ b/dist/_build/vite.plugin.mjs
-@@ -579,6 +579,10 @@ function nitroEnv(ctx) {
+@@ -435,8 +435,23 @@ function nitroPreviewPlugin(ctx) {
+ 	return {
+ 		name: "nitro:preview",
+ 		apply: (_config, configEnv) => !!configEnv.isPreview,
+-		config(config) {
+-			return { preview: { port: config.preview?.port || 3e3 } };
++		async config(userConfig) {
++			const { buildInfo } = await getBuildInfo(userConfig.root || process.cwd()).catch(() => ({ buildInfo: null }));
++			const result = { preview: { port: userConfig.preview?.port || 3e3 } };
++			if (buildInfo) {
++				const preset = buildInfo.preset;
++				const baseDir = preset === "vercel" ? ".vercel/output/functions/__server.func" :
++				               preset === "netlify" ? ".netlify/functions-internal" :
++				               ".output/server";
++				result.environments = {
++					ssr: {
++						build: {
++							outDir: baseDir
++						}
++					}
++				};
++			}
++			return result;
+ 		},
+ 		async configurePreviewServer(server) {
+ 			const { outputDir, buildInfo } = await getBuildInfo(server.config.root);
+@@ -579,6 +594,10 @@ function nitroEnv(ctx) {
  				debug("[env]  Configuring client environment", name === "client" ? "" : ` (${name})`);
  				config.build.emptyOutDir = false;
  				config.build.outDir = useNitro(ctx).options.output.publicDir;
@@ -13,3 +39,32 @@ index 692b0229704ff6f5fc116eb236d5e74099349693..e23328a09020fe4c927d3a0a82c83ff9
  			} else if (ctx.pluginConfig.experimental?.vite?.virtualBundle && name in (ctx.services || {})) {
  				debug("[env]  Configuring service environment for virtual:", name);
  				config.build ??= {};
+@@ -719,15 +738,19 @@ async function setupNitroContext(ctx, configEnv, userConfig) {
+ 			ctx.nitro.logger.info(`Using \`${prettyPath(ssrEntry)}\` as vite ssr entry.`);
+ 		}
+ 	} else {
+-		let ssrEntry = getEntry(userConfig.environments.ssr.build?.rollupOptions?.input);
+-		if (typeof ssrEntry === "string") {
+-			ssrEntry = resolveModulePath(ssrEntry, {
+-				from: [ctx.nitro.options.rootDir, ...ctx.nitro.options.scanDirs],
+-				extensions: DEFAULT_EXTENSIONS,
+-				suffixes: ["", "/index"],
+-				try: true
+-			}) || ssrEntry;
+-			ctx.services.ssr = { entry: ssrEntry };
++		// Skip creating a service if ssr environment is configured as a server consumer (e.g., TanStack Start)
++		const ssrConsumer = userConfig.environments.ssr?.consumer;
++		if (ssrConsumer !== "server") {
++			let ssrEntry = getEntry(userConfig.environments.ssr.build?.rollupOptions?.input);
++			if (typeof ssrEntry === "string") {
++				ssrEntry = resolveModulePath(ssrEntry, {
++					from: [ctx.nitro.options.rootDir, ...ctx.nitro.options.scanDirs],
++					extensions: DEFAULT_EXTENSIONS,
++					suffixes: ["", "/index"],
++					try: true
++				}) || ssrEntry;
++				ctx.services.ssr = { entry: ssrEntry };
++			}
+ 		}
+ 	}
+ 	if (!ctx.nitro.options.renderer?.handler && !ctx.nitro.options.renderer?.template && ctx.services.ssr?.entry) {
