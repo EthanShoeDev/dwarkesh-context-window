@@ -53,8 +53,8 @@ export const Route = createFileRoute('/')({
 
       return { podcasts };
     } catch (error) {
-      console.warn('Loader error in prerender:', error);
-      return { podcasts: [] };
+      console.error('Loader error:', error);
+      throw error;
     }
   },
   component: HomePage,
