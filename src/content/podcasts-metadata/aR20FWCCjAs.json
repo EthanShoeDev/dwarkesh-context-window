@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "0.0.1",
+  "youtubeVideoId": "aR20FWCCjAs",
+  "metadataCreatedAt": "2026-01-08T09:20:42.677Z",
+  "metadataLastSyncedAt": "2026-01-08T09:20:42.677Z",
+  "title": "Ilya Sutskever – We're moving from the age of scaling to the age of research",
+  "description": "Ilya & I discuss SSI’s strategy, the problems with pre-training, how to improve the generalization of AI models, and how to ensure AGI goes well.\n\n𝐄𝐏𝐈𝐒𝐎𝐃𝐄 𝐋𝐈𝐍𝐊𝐒\n* Transcript: https://www.dwarkesh.com/p/ilya-sutskever-2\n* Apple Podcasts: https://podcasts.apple.com/us/podcast/dwarkesh-podcast/id1516093381?i=1000738363711\n* Spotify: https://open.spotify.com/episode/7naOOba8SwiUNobGz8mQEL?si=39dd68f346ea4d49\n\n𝐒𝐏𝐎𝐍𝐒𝐎𝐑𝐒\n- Gemini 3 is the first model I’ve used that can find connections I haven’t anticipated. I recently wrote a blog post on RL’s information efficiency, and Gemini 3 helped me think it all through. It also generated the relevant charts and ran toy ML experiments for me with zero bugs. Try Gemini 3 today at https://gemini.google\n- Labelbox helped me create a tool to transcribe our episodes! I’ve struggled with transcription in the past because I don’t just want verbatim transcripts, I want transcripts reworded to read like essays. Labelbox helped me generate the *exact* data I needed for this. If you want to learn how Labelbox can help you (or if you want to try out the transcriber tool yourself), go to https://labelbox.com/dwarkesh\n- Sardine is an AI risk management platform that brings together thousands of device, behavior, and identity signals to help you assess a user’s risk of fraud & abuse. Sardine also offers a suite of agents to automate investigations so that as fraudsters use AI to scale their attacks, you can use AI to scale your defenses. Learn more at https://sardine.ai/dwarkesh\n\nTo sponsor a future episode, visit https://dwarkesh.com/advertise\n\n𝐓𝐈𝐌𝐄𝐒𝐓𝐀𝐌𝐏𝐒\n00:00:00 – Explaining model jaggedness\n00:09:39 - Emotions and value functions\n00:18:49 – What are we scaling?\n00:25:13 – Why humans generalize better than models\n00:35:45 – Straight-shotting superintelligence\n00:46:47 – SSI’s model will learn from deployment\n00:55:07 – Alignment\n01:18:13 – “We are squarely an age of research company”\n01:29:23 -- Self-play and multi-agent\n01:32:42 – Research taste",
+  "uploadedAt": "2025-11-25T00:00:00.000Z",
+  "duration": {
+    "_tag": "Millis",
+    "millis": 5763000
+  },
+  "viewCount": 1103507,
+  "likeCount": 28803,
+  "commentCount": 2800,
+  "channel": "Dwarkesh Patel",
+  "channelId": "UCXl4i9dYBrFOabk0xGmbkRA",
+  "channelUrl": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA",
+  "channelFollowerCount": 1160000,
+  "thumbnail": "https://i.ytimg.com/vi_webp/aR20FWCCjAs/maxresdefault.webp",
+  "categories": [
+    "Science & Technology"
+  ],
+  "tags": [],
+  "availability": "public"
+}

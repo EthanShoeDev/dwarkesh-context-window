@@ -4,6 +4,13 @@ import * as React from 'react';
 
 import { Markdown } from '@/components/Markdown';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { getSystemPromptByRevision } from '@/llm-prompts';
 import { Button } from '@/components/ui/button';
 import { buttonVariants } from '@/components/ui/button';
@@ -131,26 +138,32 @@ function LlmContentPage() {
             <div className='flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground'>
               <span>
                 Model:{' '}
-                <select
-                  className='ml-1 inline-flex h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground disabled:opacity-60'
+                <Select
                   value={post.llmModel}
                   disabled={availableModels.length <= 1}
-                  onChange={(e) => {
-                    void navigate({
-                      to: '/llm/$videoId/$model',
-                      params: {
-                        videoId: post.youtubeVideoId,
-                        model: encodeModelParam(e.target.value),
-                      },
-                    });
+                  onValueChange={(value) => {
+                    if (value) {
+                      void navigate({
+                        to: '/llm/$videoId/$model',
+                        params: {
+                          videoId: post.youtubeVideoId,
+                          model: encodeModelParam(value),
+                        },
+                      });
+                    }
                   }}
                 >
-                  {(availableModels.length ? availableModels : [post.llmModel]).map((m: string) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className='ml-1 h-8 w-fit inline-flex rounded-md border border-border bg-background px-2 text-sm text-foreground disabled:opacity-60'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(availableModels.length ? availableModels : [post.llmModel]).map((m: string) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </span>
               <span className='tabular-nums'>
                 Generated: {new Date(post.createdAt).toLocaleString()}

@@ -22,6 +22,7 @@ import { Config, Data, DateTime, Effect, Exit, Layer, Option, Schema } from 'eff
 import { LanguageModel, Prompt } from '@effect/ai';
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic';
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai';
+import { GoogleClient, GoogleLanguageModel } from '@effect/ai-google';
 import matter from 'gray-matter';
 
 import { getLatestSystemPrompt } from '@/llm-prompts';
@@ -64,6 +65,8 @@ const appConfig = Config.all({
   openrouterBaseUrl: Config.string('OPENROUTER_BASE_URL').pipe(
     Config.withDefault('https://openrouter.ai/api/v1'),
   ),
+  groqApiKey: Config.redacted('GROQ_API_KEY').pipe(Config.option),
+  googleApiKey: Config.redacted('GOOGLE_API_KEY').pipe(Config.option),
   modelsDevCacheFile: Config.string('MODELS_DEV_CACHE_FILE').pipe(
     Config.withDefault('node_modules/.cache/models.dev/api.json'),
   ),
@@ -250,7 +253,7 @@ function countWords(text: string) {
 }
 
 function classifyModel(model: string): {
-  provider: 'anthropic' | 'openai' | 'openrouter';
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'groq' | 'google';
   model: string;
 } {
   if (model.startsWith('anthropic/')) {
@@ -261,6 +264,12 @@ function classifyModel(model: string): {
   }
   if (model.startsWith('openai/')) {
     return { provider: 'openai', model: model.slice('openai/'.length) };
+  }
+  if (model.startsWith('groq/')) {
+    return { provider: 'groq', model: model.slice('groq/'.length) };
+  }
+  if (model.startsWith('google/')) {
+    return { provider: 'google', model: model.slice('google/'.length) };
   }
   if (model.startsWith('claude-')) {
     return { provider: 'anthropic', model };
@@ -509,7 +518,11 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
           ? 'openai'
           : modelSpec.provider === 'openrouter'
             ? 'openrouter'
-            : undefined;
+            : modelSpec.provider === 'groq'
+              ? 'groq'
+              : modelSpec.provider === 'google'
+                ? 'google'
+                : undefined;
 
     const model = getModelsDevModelFrontmatter({
       api: modelsDevApi,
@@ -549,31 +562,68 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
                 ),
               ),
             )
-        : yield* llmGuest
-            .generateMarkdown({
-              videoId,
-              llmModel: options.model,
-              title: metadata.title,
-              description: metadata.description,
-              transcriptText,
-            })
-            .pipe(
-              Effect.provide(
-                OpenAiLanguageModel.model(providerModelId).pipe(
-                  Layer.provide(
-                    OpenAiClient.layer({
-                      apiKey: Option.getOrUndefined(
-                        modelSpec.provider === 'openrouter'
-                          ? config.openrouterApiKey
-                          : config.openaiApiKey,
-                      ),
-                      apiUrl:
-                        modelSpec.provider === 'openrouter' ? config.openrouterBaseUrl : undefined,
-                    }),
+        : modelSpec.provider === 'groq'
+          ? yield* llmGuest
+              .generateMarkdown({
+                videoId,
+                llmModel: options.model,
+                title: metadata.title,
+                description: metadata.description,
+                transcriptText,
+              })
+              .pipe(
+                Effect.provide(
+                  OpenAiLanguageModel.model(modelSpec.model).pipe(
+                    Layer.provide(
+                      OpenAiClient.layer({
+                        apiKey: Option.getOrUndefined(config.groqApiKey),
+                        apiUrl: 'https://api.groq.com/openai/v1',
+                      }),
+                    ),
                   ),
                 ),
-              ),
-            );
+              )
+          : modelSpec.provider === 'google'
+            ? yield* llmGuest
+                .generateMarkdown({
+                  videoId,
+                  llmModel: options.model,
+                  title: metadata.title,
+                  description: metadata.description,
+                  transcriptText,
+                })
+                .pipe(
+                  Effect.provide(
+                    GoogleLanguageModel.model(modelSpec.model).pipe(
+                      Layer.provide(GoogleClient.layer({ apiKey: Option.getOrUndefined(config.googleApiKey) })),
+                    ),
+                  ),
+                )
+            : yield* llmGuest
+                .generateMarkdown({
+                  videoId,
+                  llmModel: options.model,
+                  title: metadata.title,
+                  description: metadata.description,
+                  transcriptText,
+                })
+                .pipe(
+                  Effect.provide(
+                    OpenAiLanguageModel.model(providerModelId).pipe(
+                      Layer.provide(
+                        OpenAiClient.layer({
+                          apiKey: Option.getOrUndefined(
+                            modelSpec.provider === 'openrouter'
+                              ? config.openrouterApiKey
+                              : config.openaiApiKey,
+                          ),
+                          apiUrl:
+                            modelSpec.provider === 'openrouter' ? config.openrouterBaseUrl : undefined,
+                        }),
+                      ),
+                    ),
+                  ),
+                );
 
     const payload = {
       schemaVersion: '0.0.1' as const,

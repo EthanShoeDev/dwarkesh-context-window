@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "0.0.1",
+  "youtubeVideoId": "8-boBsWcr5A",
+  "metadataCreatedAt": "2026-01-08T09:22:07.451Z",
+  "metadataLastSyncedAt": "2026-01-08T09:22:07.451Z",
+  "title": "Satya Nadella – How Microsoft thinks about AGI",
+  "description": "As part of this interview, Satya Nadella gave me and Dylan Patel (founder of SemiAnalysis) an exclusive first-look at their brand-new Fairwater 2 datacenter.\n\nMicrosoft is building multiple Fairwaters, each of which has hundreds of thousands of GB200s & GB300s. Between all these interconnected buildings, they’ll have over 2 GW of total capacity. Just to give a frame of reference, even a single one of these Fairwater buildings is more powerful than any other AI datacenter that currently exists.\n\nSatya then answered a bunch of questions about how Microsoft is preparing for AGI across all layers of the stack.\n\n𝐄𝐏𝐈𝐒𝐎𝐃𝐄 𝐋𝐈𝐍𝐊𝐒\n* Transcript: https://www.dwarkesh.com/p/satya-nadella-2\n* Apple Podcasts: https://podcasts.apple.com/us/podcast/satya-nadella-how-microsoft-is-preparing-for-agi/id1516093381?i=1000736461892\n* Spotify: https://open.spotify.com/episode/290a568fldDQBrPhYOCZFK?si=71a120f868384ffd\n\n𝐒𝐏𝐎𝐍𝐒𝐎𝐑𝐒\n* Labelbox produces high-quality data at massive scale, powering any capability you want your model to have. Whether you’re building a voice agent, a coding assistant, or a robotics model, Labelbox gets you the exact data you need, fast. Reach out at https://labelbox.com/dwarkesh\n* CodeRabbit automatically reviews and summarizes PRs so you can understand changes and catch bugs in half the time. This is helpful whether you’re coding solo, collaborating with agents, or leading a full team. To learn how CodeRabbit integrates directly into your workflow, go to https://coderabbit.ai/dwarkesh\n\nTo sponsor a future episode, visit https://dwarkesh.com/advertise.\n\n𝐓𝐈𝐌𝐄𝐒𝐓𝐀𝐌𝐏𝐒\n00:00:00 - Fairwater 2\n00:04:15 - Business models for AGI\n00:13:42 - Copilot\n00:20:56 - Whose margins will expand most?\n00:37:12 - MAI\n00:48:42 - The hyperscale business\n01:03:39 - In-house chip & OpenAI partnership\n01:10:30 - The CAPEX explosion\n01:16:01 - Will the world trust US companies to lead AI?",
+  "uploadedAt": "2025-11-12T00:00:00.000Z",
+  "duration": {
+    "_tag": "Millis",
+    "millis": 5321000
+  },
+  "viewCount": 290906,
+  "likeCount": 6274,
+  "commentCount": 577,
+  "channel": "Dwarkesh Patel",
+  "channelId": "UCXl4i9dYBrFOabk0xGmbkRA",
+  "channelUrl": "https://www.youtube.com/channel/UCXl4i9dYBrFOabk0xGmbkRA",
+  "channelFollowerCount": 1160000,
+  "thumbnail": "https://i.ytimg.com/vi_webp/8-boBsWcr5A/maxresdefault.webp",
+  "categories": [
+    "Science & Technology"
+  ],
+  "tags": [],
+  "availability": "public"
+}
