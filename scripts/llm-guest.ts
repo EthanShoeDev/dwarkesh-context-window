@@ -595,7 +595,9 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
                 .pipe(
                   Effect.provide(
                     GoogleLanguageModel.model(modelSpec.model).pipe(
-                      Layer.provide(GoogleClient.layer({ apiKey: Option.getOrUndefined(config.googleApiKey) })),
+                      Layer.provide(
+                        GoogleClient.layer({ apiKey: Option.getOrUndefined(config.googleApiKey) }),
+                      ),
                     ),
                   ),
                 )
@@ -618,7 +620,9 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
                               : config.openaiApiKey,
                           ),
                           apiUrl:
-                            modelSpec.provider === 'openrouter' ? config.openrouterBaseUrl : undefined,
+                            modelSpec.provider === 'openrouter'
+                              ? config.openrouterBaseUrl
+                              : undefined,
                         }),
                       ),
                     ),

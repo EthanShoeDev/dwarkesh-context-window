@@ -37,6 +37,7 @@ model:
   last_updated: '2025-11-19'
   open_weights: false
 ---
+
 # Joining Satya Nadella: Scaling to AGI Without Betting the Farm on One Stack
 
 ## Introduction
@@ -51,7 +52,7 @@ Satya argues model companies face a "winner's curse": innovate hard, then get co
 
 **Challenge to Satya:** Your GitHub Copilot "Auto" mode arbitrages models beautifully today, but as tasks go multi-hour (e.g., full-repo refactors), latency-sensitive reasoning favors integrated stacks. Why assume open checkpoints stay "one copy away"? Distillation loses 10-20% per hop (per recent Phi-3.5 evals), and RLHF data remains proprietary gold.
 
-**Research Direction:** Run a controlled experiment on *AgentArena-2.0* (extending the 2024 benchmark): Pit MAI's omni-model (text+audio+image) against distilled Llama+Qwen ensembles in a 100-developer blind test for end-to-end GitHub workflows (issue-to-PR). Measure tokens/dollar and hallucination rates under 1M-token contexts. Hypothesis: Native reasoning scales 3x better than mixtures without 2x test-time compute.
+**Research Direction:** Run a controlled experiment on _AgentArena-2.0_ (extending the 2024 benchmark): Pit MAI's omni-model (text+audio+image) against distilled Llama+Qwen ensembles in a 100-developer blind test for end-to-end GitHub workflows (issue-to-PR). Measure tokens/dollar and hallucination rates under 1M-token contexts. Hypothesis: Native reasoning scales 3x better than mixtures without 2x test-time compute.
 
 **Implication Overlooked:** If MAI nails omni-modal (as teased), it bootstraps Microsoft's edge in embodied agents—think Copilot provisioning Windows 365 VMs autonomously. Speculation: By 2027, 40% of Azure inference runs "o1-like" search, pricing out pure open-source unless you subsidize FLOP.
 
@@ -63,7 +64,7 @@ Satya envisions Microsoft's tools (Excel Agent, M365) evolving into "infrastruct
 
 **Connection to Recent Devs:** Overlooked: Meta's SAM 2 (July 2024) and Video-LLaMA 2 enable zero-shot video agents that "see" screens like humans, accelerating UI escape. Pair with ReAct looping, and agents self-migrate.
 
-**Research Direction:** Benchmark *ScaffoldBreak-Eval*: Train agents on mainframe-to-cloud migrations (your example) using o1 vs. Claude on Azure vs. raw APIs. Track efficiency (FLOPs/task) and lock-in (migration success sans M365). Proposal: 10k trajectories on Labelbox-scale data, testing if native Excel formulas beat programmatic SQL by >2x tokens.
+**Research Direction:** Benchmark _ScaffoldBreak-Eval_: Train agents on mainframe-to-cloud migrations (your example) using o1 vs. Claude on Azure vs. raw APIs. Track efficiency (FLOPs/task) and lock-in (migration success sans M365). Proposal: 10k trajectories on Labelbox-scale data, testing if native Excel formulas beat programmatic SQL by >2x tokens.
 
 **Speculation:** Per-agent economics explode TAM to $10T (agents > humans by 2030). Microsoft captures 30% via identity/observability (Entra ID for agents), but only if MAI leads continual fine-tuning—else OpenAI's fleet wins the flywheel.
 
@@ -75,7 +76,7 @@ Fairwater's multi-region petabit WAN for superpods is jaw-dropping—5M optics r
 
 **Recent Overlook:** NVIDIA's NVLink Fusion (Sept 2024) enables Rubin-scale pods with 1.8TB/s links—your Fairwater 4 could 100x GPT-5 flops, but only if software dispatches MOEs dynamically.
 
-**Research Direction:** Simulate *FleetOpti-Exp*: Use Azure's scheduler to A/B test GB200 pods (optimized KV-cache for dense LMs) vs. fungible racks on MLPerf-training v5.0. Metrics: tokens/watt for mixture-of-experts (Grok-3 scale) vs. dense (o1). Partner with SemiAnalysis for TCO modeling—predict Rubin Ultra breakeven.
+**Research Direction:** Simulate _FleetOpti-Exp_: Use Azure's scheduler to A/B test GB200 pods (optimized KV-cache for dense LMs) vs. fungible racks on MLPerf-training v5.0. Metrics: tokens/watt for mixture-of-experts (Grok-3 scale) vs. dense (o1). Partner with SemiAnalysis for TCO modeling—predict Rubin Ultra breakeven.
 
 **Implication:** CAPEX hits $500B/yr? Winners optimize 5x software gains (your 40x tokens/$ claim). Speculation: "Neo-hyperscalers" like Lambda fragment the market; Microsoft thrives via marketplace (Grok+OpenAI on Azure), hitting 25% share by monetizing "agent OS" layers.
 
@@ -87,7 +88,7 @@ Satya nails trust as US tech's edge: FDI via AI factories abroad, sovereign clou
 
 **Connection:** Overlooked: FedAvg 2.0 (ICLR 2024) + DP-SGD scales to 100B params across shards, preserving utility (90% convergence vs. centralized).
 
-**Research Direction:** Launch *SovAI-Fed*: Federated pretrain on EU/India shards (Azure Sovereign + Llama base). Test on XSum/MMLU with 1% local data leakage. Experiment: Homomorphic encryption for weights (Zama.ai collab) vs. open checkpoints. Goal: 2x faster diffusion without USG trust.
+**Research Direction:** Launch _SovAI-Fed_: Federated pretrain on EU/India shards (Azure Sovereign + Llama base). Test on XSum/MMLU with 1% local data leakage. Experiment: Homomorphic encryption for weights (Zama.ai collab) vs. open checkpoints. Goal: 2x faster diffusion without USG trust.
 
 **Speculation:** Multipolarity births "model multipolarity"—10 frontier families by 2030. Microsoft wins as orchestrator, but China (ByteDance capex parity) grabs Asia unless US federates aggressively.
 

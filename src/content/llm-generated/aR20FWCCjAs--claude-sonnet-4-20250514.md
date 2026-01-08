@@ -37,6 +37,7 @@ model:
   last_updated: '2025-05-22'
   open_weights: false
 ---
+
 # Beyond Scaling Laws: The Coming Research Renaissance in AI
 
 After listening to Ilya Sutskever's fascinating conversation with Dwarkesh, I'm struck by how the discussion illuminated a fundamental phase transition happening in AI right now. As someone who has been watching the field evolve, I want to build on several threads that I think deserve deeper exploration—and challenge some assumptions that may be limiting our thinking.
