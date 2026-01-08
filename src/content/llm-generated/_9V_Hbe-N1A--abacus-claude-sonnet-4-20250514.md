@@ -1,7 +1,7 @@
 ---
 schemaVersion: 0.0.1
 youtubeVideoId: _9V_Hbe-N1A
-llmModel: claude-sonnet-4-20250514
+llmModel: abacus/claude-sonnet-4-20250514
 createdAt: '2026-01-04T09:26:11.652Z'
 responseTimeMs: 48488
 inputTokens: 26054

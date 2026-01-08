@@ -632,7 +632,7 @@ function generateForVideoId(videoId: string, options: { skipIfExists: boolean; m
     const payload = {
       schemaVersion: '0.0.1' as const,
       youtubeVideoId: videoId,
-      llmModel: generated.llmModel,
+      llmModel: model?.id ?? generated.llmModel,
       createdAt,
       responseTimeMs: generated.responseTimeMs,
       systemPromptRevision,

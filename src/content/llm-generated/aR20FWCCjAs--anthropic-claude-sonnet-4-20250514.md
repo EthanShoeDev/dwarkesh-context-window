@@ -1,7 +1,7 @@
 ---
 schemaVersion: 0.0.1
 youtubeVideoId: aR20FWCCjAs
-llmModel: claude-sonnet-4-20250514
+llmModel: anthropic/claude-sonnet-4-20250514
 createdAt: '2026-01-08T09:24:17.028Z'
 responseTimeMs: 51273
 inputTokens: 19527

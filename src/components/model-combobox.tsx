@@ -17,6 +17,7 @@ interface ModelComboboxProps {
 export function ModelCombobox({ models, value, onValueChange, disabled }: ModelComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   const sortedModels = React.useMemo(() => {
     return [...models].sort((a, b) => {
@@ -53,14 +54,22 @@ export function ModelCombobox({ models, value, onValueChange, disabled }: ModelC
     setOpen(false);
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen) {
+      setSearch('');
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger disabled={disabled}>
         <Button
           variant='outline'
           role='combobox'
           aria-expanded={open}
-          className='w-[300px] justify-between h-10'
+          className='w-[280px] justify-between h-11 px-3 font-normal'
         >
           {value ? (
             <span className='truncate'>
@@ -75,27 +84,31 @@ export function ModelCombobox({ models, value, onValueChange, disabled }: ModelC
           <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className='w-[300px] p-0' align='start'>
+      <PopoverContent className='w-[280px] p-0' align='start'>
         <div className='flex flex-col'>
-          <div className='flex items-center border-b px-3 gap-2'>
+          <div className='flex items-center border-b px-3 py-2.5 gap-2'>
             <Search className='h-4 w-4 shrink-0 opacity-50' />
             <input
+              ref={searchInputRef}
               placeholder='Search models...'
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className='flex-1 h-10 bg-transparent text-sm outline-none placeholder:text-muted-foreground'
+              className='flex-1 h-9 bg-transparent text-sm outline-none placeholder:text-muted-foreground'
             />
             {search && (
-              <button onClick={() => setSearch('')} className='p-1 hover:bg-muted rounded'>
-                <X className='h-3 w-3' />
+              <button
+                onClick={() => setSearch('')}
+                className='p-1.5 hover:bg-muted rounded-md transition-colors'
+              >
+                <X className='h-3.5 w-3.5' />
               </button>
             )}
           </div>
-          <div className='max-h-[280px] overflow-y-auto'>
+          <div className='max-h-[300px] overflow-y-auto'>
             {filteredModels.length === 0 ? (
-              <div className='py-6 text-center text-sm text-muted-foreground'>No model found.</div>
+              <div className='py-8 text-center text-sm text-muted-foreground'>No model found.</div>
             ) : (
-              <div className='py-1'>
+              <div className='py-1.5'>
                 {filteredModels.map((model) => {
                   const { provider, name } = formatModelLabel(model);
                   const isSelected = value === model;
@@ -105,18 +118,21 @@ export function ModelCombobox({ models, value, onValueChange, disabled }: ModelC
                       key={model}
                       onClick={() => handleSelect(model)}
                       className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted transition-colors',
-                        isSelected && 'bg-muted',
+                        'w-full flex items-center gap-2 px-3 py-2.5 text-sm cursor-pointer transition-colors hover:bg-muted/80',
+                        isSelected && 'bg-muted/80',
                       )}
                     >
                       {provider && (
-                        <span className='text-xs text-muted-foreground shrink-0 min-w-[60px] text-left'>
+                        <span className='text-xs text-muted-foreground shrink-0 min-w-[65px] text-left font-medium'>
                           {provider}
                         </span>
                       )}
                       <span className='truncate flex-1 text-left'>{name}</span>
                       <Check
-                        className={cn('h-4 w-4 shrink-0', isSelected ? 'opacity-100' : 'opacity-0')}
+                        className={cn(
+                          'h-4 w-4 shrink-0',
+                          isSelected ? 'opacity-100 text-foreground' : 'opacity-0',
+                        )}
                       />
                     </button>
                   );
