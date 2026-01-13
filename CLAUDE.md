@@ -17,11 +17,16 @@ bun run dev
 # Build for production (prerendered static site)
 bun run build
 
-# Preview production build
+# Preview production build (Vite preview server)
 bun run preview
 
-# Build and run production server
+# Build and run production server (legacy)
 bun run build:preview
+
+# Build and run production server with Effect-TS script (recommended)
+bun run preview:server
+# Or with options:
+./scripts/preview.ts --skip-build --port 3001
 ```
 
 ### Testing & Linting
